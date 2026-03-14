@@ -1,10 +1,14 @@
 import os
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-import os
 import json
 import requests
 import time
+import asyncio
+from .cron_problems import start_periodic_problemset_refresh
 import uuid
+from fastapi import FastAPI, HTTPException, Depends, WebSocket, WebSocketDisconnect
+from sqlalchemy.orm import Session
+from .db import get_db
+from . import crud, schemas
 
 app = FastAPI()
 
@@ -27,11 +31,29 @@ def cf_problems():
         pass
     return {"problems": []}
 
-@app.post("/submissions/submit")
-async def submit(problem_id: str, language: str, code: str, duel_id: str | None = None, room_id: str | None = None):
-    submission_id = str(uuid.uuid4())
-    # In MVP, we just acknowledge; actual sandbox will be wired later
-    return {"submission_id": submission_id, "status": "queued"}
+@app.post("/submissions/submit", response_model=schemas.SubmissionOut)
+async def submit(sub_in: schemas.SubmissionCreate, db: Session = Depends(get_db)):
+    # Validate user exists
+    user = crud.get_user(db, sub_in.user_id)
+    if user is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    # Create submission via CRUD layer
+    sub = crud.create_submission(db, sub_in, user_id=sub_in.user_id)
+    # Publish to Redis submission_queue (best-effort)
+    try:
+        import redis, json
+        redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+        r = redis.Redis.from_url(redis_url)
+        payload = {
+            "submission_id": sub.id,
+            "user_id": sub_in.user_id,
+            "problem_id": sub_in.problem_id,
+            "language": sub_in.language
+        }
+        r.publish("submission_queue", json.dumps(payload))
+    except Exception as e:
+        print(f"Redis publish failed: {e} (phase1C)")
+    return sub
 
 @app.websocket("/ws/duel/{duel_id}")
 async def duel_ws(websocket: WebSocket, duel_id: str):
