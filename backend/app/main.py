@@ -3,8 +3,6 @@ import json
 import requests
 import time
 import asyncio
-from .cron_problems import start_periodic_problemset_refresh
-import uuid
 from fastapi import FastAPI, HTTPException, Depends, WebSocket, WebSocketDisconnect
 from sqlalchemy.orm import Session
 from .db import get_db
