@@ -90,3 +90,20 @@ class ChatMessage(Base):
     room = relationship('Room', back_populates='chat_messages')
     duel = relationship('Duel', backref='chat_messages')
     user = relationship('User', backref='chat_messages')
+
+
+class Problem(Base):
+    __tablename__ = "problems"
+
+    id = Column(String, primary_key=True, default=generate_uuid)
+
+    contest_id = Column(Integer, index=True)
+    index = Column(String)
+    name = Column(String)
+
+    rating = Column(Integer, nullable=True)
+
+    tags = Column(JSON)
+
+    time_limit = Column(Integer)
+    memory_limit = Column(Integer)
