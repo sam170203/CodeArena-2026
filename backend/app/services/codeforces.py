@@ -163,3 +163,40 @@ class CodeforcesService:
             }
             for s in submissions
         ]
+
+    @staticmethod
+    def check_problem_solved(handle: str, problem_id: str) -> Optional[Dict[str, Any]]:
+        CodeforcesService._rate_guard()
+
+        url = f"{CF_API_BASE}/user.status"
+        params = {"handle": handle}
+        response = requests.get(url, params=params, timeout=10)
+        data = response.json()
+
+        if data["status"] != "OK":
+            return None
+
+        submissions = data["result"]
+        parts = problem_id.split("-")
+        contest_id = int(parts[0]) if len(parts) > 1 and parts[0].isdigit() else None
+        index = parts[-1]
+
+        for sub in submissions:
+            prob = sub.get("problem", {})
+            if prob.get("contestId") == contest_id and prob.get("index") == index:
+                verdict = sub.get("verdict", "")
+                if verdict == "OK":
+                    return {
+                        "solved": True,
+                        "submission_time": sub.get("creationTimeSeconds"),
+                        "verdict": verdict,
+                        "time_ms": sub.get("timeConsumedMillis"),
+                        "memory_kb": sub.get("memoryConsumedBytes", 0) // 1024,
+                    }
+                return {
+                    "solved": False,
+                    "submission_time": sub.get("creationTimeSeconds"),
+                    "verdict": verdict,
+                }
+
+        return {"solved": False, "submission_time": None}

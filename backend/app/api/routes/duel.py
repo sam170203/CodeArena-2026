@@ -1,10 +1,11 @@
 import uuid
-import random
 from datetime import datetime
 from typing import Optional, Dict, Any, List
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
+from sqlalchemy.orm import Session
 
+from app.db import get_db
 from app.schemas import (
     DuelCreate,
     DuelCreateResponse,
@@ -14,6 +15,7 @@ from app.schemas import (
     DuelOut,
 )
 from app.services.codeforces import CodeforcesService
+from app import crud
 
 router = APIRouter(prefix="/duel", tags=["duel"])
 
@@ -162,7 +164,7 @@ def get_duel_problem(duel_id: str, user_id: str):
 
 
 @router.post("/submit", response_model=DuelSubmitResult)
-def submit_solution(duel_id: str, user_id: str):
+def submit_solution(duel_id: str, user_id: str, db: Session = Depends(get_db)):
     duel = duels.get(duel_id)
     
     if not duel:
@@ -177,10 +179,31 @@ def submit_solution(duel_id: str, user_id: str):
             detail=f"Duel is {duel['status']}, submissions closed"
         )
     
-    success = random.choice([True, False, False, False])
-    verdict = "OK" if success else random.choice(["WRONG_ANSWER", "TIME_LIMIT_EXCEEDED", "RUNTIME_ERROR"])
+    user = crud.get_user_by_id(db, user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
     
-    result = DuelSubmitResult(
+    if not user.cf_handle:
+        raise HTTPException(
+            status_code=400,
+            detail="Please set your Codeforces handle first via /auth/me endpoint"
+        )
+    
+    result_data = CodeforcesService.check_problem_solved(
+        user.cf_handle,
+        duel["problem_id"]
+    )
+    
+    if result_data is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Codeforces API unavailable, please retry"
+        )
+    
+    success = result_data.get("solved", False)
+    verdict = result_data.get("verdict", "UNKNOWN")
+    
+    submit_result = DuelSubmitResult(
         duel_id=duel_id,
         user_id=user_id,
         success=success,
@@ -192,6 +215,6 @@ def submit_solution(duel_id: str, user_id: str):
         duel["status"] = "finished"
         duel["winner_id"] = user_id
         duel["finished_at"] = datetime.utcnow().isoformat()
-        result.winner_id = user_id
+        submit_result.winner_id = user_id
     
-    return result
+    return submit_result
