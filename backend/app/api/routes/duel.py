@@ -186,7 +186,7 @@ def submit_solution(duel_id: str, user_id: str, db: Session = Depends(get_db)):
     if not user.cf_handle:
         raise HTTPException(
             status_code=400,
-            detail="Please set your Codeforces handle first via /auth/me endpoint"
+            detail="Set your Codeforces handle using /auth/cf-handle before submitting"
         )
     
     result_data = CodeforcesService.check_problem_solved(

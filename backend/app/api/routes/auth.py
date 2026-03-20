@@ -73,3 +73,11 @@ def get_me(
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     return user
+
+
+@router.put("/cf-handle")
+def update_cf_handle(user_id: str, cf_handle: str, db: Session = Depends(get_db)):
+    user = crud.update_user_cf_handle(db, user_id, cf_handle)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    return {"message": "CF handle updated successfully", "cf_handle": cf_handle}
