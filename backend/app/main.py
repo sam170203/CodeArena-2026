@@ -1,6 +1,5 @@
 import os
 import json
-import requests
 import time
 import asyncio
 from fastapi import FastAPI, HTTPException, Depends, WebSocket, WebSocketDisconnect
@@ -8,6 +7,7 @@ from sqlalchemy.orm import Session
 from .db import get_db
 from . import crud, schemas
 from .schemas import CFProblemsResponse
+from .services.codeforces import CodeforcesService
 
 app = FastAPI()
 
@@ -24,27 +24,76 @@ from .schemas import CFProblemsResponse
 @app.get("/cf/problems", response_model=CFProblemsResponse)
 def cf_problems():
     try:
-        resp = requests.get("https://codeforces.com/api/problemset.problems", timeout=5)
-        if resp.status_code == 200:
-            data = resp.json()
-            problems = data.get("result", {}).get("problems", [])
+        problems = CodeforcesService.fetch_problemset()
 
-            # map fields
-            mapped = [
-                {
-                    "contest_id": p.get("contestId"),
-                    "index": p.get("index"),
-                    "name": p.get("name"),
-                    "rating": p.get("rating"),
-                }
-                for p in problems[:50]
-            ]
+        mapped = [
+            {
+                "contest_id": p.get("contestId"),
+                "index": p.get("index"),
+                "name": p.get("name"),
+                "rating": p.get("rating"),
+            }
+            for p in problems[:50]
+        ]
 
-            return {"problems": mapped}
-    except Exception:
-        pass
+        return {"problems": mapped}
 
-    return {"problems": []}
+    except Exception as e:
+        print(e)
+        return {"problems": []}
+    
+from .services.codeforces import CodeforcesService
+
+@app.get("/practice/div2")
+def get_div2_practice():
+    try:
+        problems = CodeforcesService.fetch_problemset()
+
+        # Filter Div2 level problems (rating range approx)
+        div2 = [p for p in problems if p.get("rating") and 1200 <= p["rating"] <= 1900]
+
+        # Sort by rating (ascending)
+        div2 = sorted(div2, key=lambda x: x["rating"])
+
+        # Take latest 60 (or first 60 sorted)
+        selected = div2[:60]
+
+        return {"problems": selected}
+
+    except Exception as e:
+        print("Error:", e)
+        return {"problems": []}
+    
+@app.get("/practice/div3", response_model=CFProblemsResponse)
+def get_div3_problems():
+    try:
+        problems = CodeforcesService.fetch_problemset()
+
+        div3 = [
+            p for p in problems
+            if p.get("rating") and 800 <= p["rating"] <= 1400
+        ]
+
+        mapped = [
+            {
+                "contest_id": p.get("contestId"),
+                "index": p.get("index"),
+                "name": p.get("name"),
+                "rating": p.get("rating"),
+            }
+            for p in div3[:60]
+        ]
+
+        return {"problems": mapped}
+
+    except Exception as e:
+        print(e)
+        return {"problems": []}
+    
+@app.get("/practice/generate")
+def generate_practice(rating: int = 1200, count: int = 5):
+    problems = CodeforcesService.generate_practice(rating, count)
+    return {"problems": problems}
 
 @app.post("/submissions/submit", response_model=schemas.SubmissionOut)
 async def submit(sub_in: schemas.SubmissionCreate, db: Session = Depends(get_db)):
