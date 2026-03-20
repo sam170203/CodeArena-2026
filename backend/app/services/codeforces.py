@@ -1,12 +1,18 @@
 import time
-import requests
-import redis
 import json
-import random   # ✅ added
+import random
+from typing import Optional, List, Dict, Any
+
+import requests
+
+try:
+    import redis
+    redis_client = redis.Redis(host="localhost", port=6379, db=0, decode_responses=True)
+    redis_client.ping()
+except Exception:
+    redis_client = None
 
 CF_API_BASE = "https://codeforces.com/api"
-
-redis_client = redis.Redis(host="localhost", port=6379, db=0, decode_responses=True)
 
 
 class CodeforcesService:
@@ -16,23 +22,22 @@ class CodeforcesService:
     @staticmethod
     def _rate_guard():
         now = time.time()
-
         if now - CodeforcesService._rate_last < 1:
             time.sleep(1 - (now - CodeforcesService._rate_last))
-
         CodeforcesService._rate_last = time.time()
 
     @staticmethod
-    def fetch_problemset():
+    def fetch_problemset() -> List[Dict[str, Any]]:
         cache_key = "cf_problemset"
 
-        try:
-            cached = redis_client.get(cache_key)
-        except Exception:
-            cached = None
-
-        if cached:
-            return json.loads(cached)
+        if redis_client:
+            try:
+                cached = redis_client.get(cache_key)
+                if cached:
+                    val = cached.decode() if isinstance(cached, bytes) else cached
+                    return json.loads(val)
+            except Exception:
+                pass
 
         CodeforcesService._rate_guard()
 
@@ -45,20 +50,116 @@ class CodeforcesService:
 
         problems = data["result"]["problems"]
 
-        try:
-            redis_client.set(cache_key, json.dumps(problems), ex=3600)
-        except Exception:
-            pass
+        if redis_client:
+            try:
+                redis_client.set(cache_key, json.dumps(problems), ex=3600)
+            except Exception:
+                pass
 
         return problems
 
     @staticmethod
-    def generate_practice(rating: int, count: int):
-        problems = CodeforcesService.fetch_problemset()   # ✅ fixed
+    def _map_problem(p: Dict[str, Any]) -> Dict[str, Any]:
+        return {
+            "id": f"{p.get('contestId')}-{p.get('index')}",
+            "contest_id": p.get("contestId"),
+            "index": p.get("index"),
+            "name": p.get("name"),
+            "rating": p.get("rating"),
+            "tags": p.get("tags", []),
+            "time_limit": p.get("timeLimit"),
+            "memory_limit": p.get("memoryLimit"),
+        }
+
+    @staticmethod
+    def generate_practice(
+        rating: int,
+        count: int,
+        tags: Optional[List[str]] = None
+    ) -> List[Dict[str, Any]]:
+        problems = CodeforcesService.fetch_problemset()
 
         filtered = [
             p for p in problems
             if p.get("rating") and abs(p["rating"] - rating) <= 200
         ]
 
-        return random.sample(filtered, min(count, len(filtered)))   # ✅ works
+        if tags:
+            filtered = [
+                p for p in filtered
+                if any(t in p.get("tags", []) for t in tags)
+            ]
+
+        selected = random.sample(filtered, min(count, len(filtered)))
+        return [CodeforcesService._map_problem(p) for p in selected]
+
+    @staticmethod
+    def fetch_user_rating(handle: str) -> Optional[Dict[str, Any]]:
+        cache_key = f"cf_user_rating:{handle}"
+
+        if redis_client:
+            try:
+                cached = redis_client.get(cache_key)
+                if cached:
+                    val = cached.decode() if isinstance(cached, bytes) else cached
+                    return json.loads(val)
+            except Exception:
+                pass
+
+        CodeforcesService._rate_guard()
+
+        url = f"{CF_API_BASE}/user.rating"
+        params = {"handle": handle}
+        response = requests.get(url, params=params, timeout=10)
+        data = response.json()
+
+        if data["status"] != "OK":
+            return None
+
+        contests = data["result"]
+        if not contests:
+            return None
+
+        latest = contests[-1]
+        return {
+            "handle": handle,
+            "current_rating": latest.get("newRating"),
+            "max_rating": max(c.get("newRating", 0) for c in contests),
+            "rank": latest.get("rank"),
+        }
+
+    @staticmethod
+    def fetch_submission_status(handle: str, count: int = 10) -> List[Dict[str, Any]]:
+        cache_key = f"cf_submissions:{handle}"
+
+        if redis_client:
+            try:
+                cached = redis_client.get(cache_key)
+                if cached:
+                    val = cached.decode() if isinstance(cached, bytes) else cached
+                    return json.loads(val)
+            except Exception:
+                pass
+
+        CodeforcesService._rate_guard()
+
+        url = f"{CF_API_BASE}/user.status"
+        params = {"handle": handle}
+        response = requests.get(url, params=params, timeout=10)
+        data = response.json()
+
+        if data["status"] != "OK":
+            return []
+
+        submissions = data["result"][:count]
+        return [
+            {
+                "id": s.get("id"),
+                "problem_id": f"{s['problem'].get('contestId')}-{s['problem'].get('index')}",
+                "verdict": s.get("verdict"),
+                "time_ms": s.get("timeConsumedMillis"),
+                "memory_kb": s.get("memoryConsumedBytes", 0) // 1024,
+                "language": s.get("programmingLanguage"),
+            }
+            for s in submissions
+        ]

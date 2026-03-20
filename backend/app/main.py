@@ -9,10 +9,12 @@ from . import crud, schemas
 from .schemas import CFProblemsResponse
 from .services.codeforces import CodeforcesService
 from .api.routes.auth import router as auth_router
+from .api.routes.practice import router as practice_router
 
 app = FastAPI()
 
 app.include_router(auth_router)
+app.include_router(practice_router)
 
 # In-memory structures for MVP (replace with DB-backed ORM later)
 duel_subs: dict[str, set] = {}
@@ -44,59 +46,6 @@ def cf_problems():
     except Exception as e:
         print(e)
         return {"problems": []}
-    
-from .services.codeforces import CodeforcesService
-
-@app.get("/practice/div2")
-def get_div2_practice():
-    try:
-        problems = CodeforcesService.fetch_problemset()
-
-        # Filter Div2 level problems (rating range approx)
-        div2 = [p for p in problems if p.get("rating") and 1200 <= p["rating"] <= 1900]
-
-        # Sort by rating (ascending)
-        div2 = sorted(div2, key=lambda x: x["rating"])
-
-        # Take latest 60 (or first 60 sorted)
-        selected = div2[:60]
-
-        return {"problems": selected}
-
-    except Exception as e:
-        print("Error:", e)
-        return {"problems": []}
-    
-@app.get("/practice/div3", response_model=CFProblemsResponse)
-def get_div3_problems():
-    try:
-        problems = CodeforcesService.fetch_problemset()
-
-        div3 = [
-            p for p in problems
-            if p.get("rating") and 800 <= p["rating"] <= 1400
-        ]
-
-        mapped = [
-            {
-                "contest_id": p.get("contestId"),
-                "index": p.get("index"),
-                "name": p.get("name"),
-                "rating": p.get("rating"),
-            }
-            for p in div3[:60]
-        ]
-
-        return {"problems": mapped}
-
-    except Exception as e:
-        print(e)
-        return {"problems": []}
-    
-@app.get("/practice/generate")
-def generate_practice(rating: int = 1200, count: int = 5):
-    problems = CodeforcesService.generate_practice(rating, count)
-    return {"problems": problems}
 
 @app.post("/submissions/submit", response_model=schemas.SubmissionOut)
 async def submit(sub_in: schemas.SubmissionCreate, db: Session = Depends(get_db)):

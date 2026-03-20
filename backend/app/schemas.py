@@ -3,24 +3,24 @@ from typing import List, Optional
 from pydantic import BaseModel
 
 
-# ---------------- Codeforces ----------------
 class CFProblem(BaseModel):
-    contest_id: Optional[int]
-    index: Optional[str]
-    name: Optional[str]
-    rating: Optional[int]
+    contest_id: Optional[int] = None
+    index: Optional[str] = None
+    name: Optional[str] = None
+    rating: Optional[int] = None
     tags: Optional[List[str]] = []
-
-
-class CFProblemsResponse(BaseModel):
-    problems: List[CFProblem]
+    time_limit: Optional[int] = None
+    memory_limit: Optional[int] = None
 
 
 class PracticeResponse(BaseModel):
     problems: List[CFProblem]
 
 
-# ---------------- User ----------------
+class CFProblemsResponse(BaseModel):
+    problems: List[CFProblem]
+
+
 class UserCreate(BaseModel):
     username: str
     email: str
@@ -33,8 +33,7 @@ class UserOut(BaseModel):
     email: str
     created_at: Optional[datetime] = None
 
-    class Config:
-        from_attributes = True
+    model_config = {"from_attributes": True}
 
 
 class UserLogin(BaseModel):
@@ -58,7 +57,6 @@ class UserMe(BaseModel):
     model_config = {"from_attributes": True}
 
 
-# ---------------- Submission ----------------
 class SubmissionCreate(BaseModel):
     user_id: str
     problem_id: str
@@ -81,11 +79,9 @@ class SubmissionOut(BaseModel):
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 
-    class Config:
-        from_attributes = True
+    model_config = {"from_attributes": True}
 
 
-# ---------------- Duel ----------------
 class DuelCreate(BaseModel):
     initiator_id: str
     opponent_id: Optional[str] = None
@@ -101,11 +97,9 @@ class DuelOut(BaseModel):
     started_at: Optional[datetime] = None
     finished_at: Optional[datetime] = None
 
-    class Config:
-        from_attributes = True
+    model_config = {"from_attributes": True}
 
 
-# ---------------- Room ----------------
 class RoomCreate(BaseModel):
     host_id: str
     title: str
@@ -120,11 +114,9 @@ class RoomOut(BaseModel):
     problem_id: Optional[str] = None
     max_participants: int
 
-    class Config:
-        from_attributes = True
+    model_config = {"from_attributes": True}
 
 
-# ---------------- Chat ----------------
 class ChatMessageCreate(BaseModel):
     room_id: Optional[str] = None
     duel_id: Optional[str] = None
@@ -140,5 +132,4 @@ class ChatMessageOut(BaseModel):
     message: str
     created_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = {"from_attributes": True}
