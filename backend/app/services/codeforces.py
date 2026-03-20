@@ -1,9 +1,12 @@
 import time
 import json
 import random
+import logging
 from typing import Optional, List, Dict, Any
 
 import requests
+
+logger = logging.getLogger(__name__)
 
 try:
     import redis
@@ -18,13 +21,24 @@ CF_API_BASE = "https://codeforces.com/api"
 class CodeforcesService:
 
     _rate_last = 0
+    _rate_limit = 2
 
     @staticmethod
     def _rate_guard():
         now = time.time()
-        if now - CodeforcesService._rate_last < 1:
-            time.sleep(1 - (now - CodeforcesService._rate_last))
+        elapsed = now - CodeforcesService._rate_last
+        if elapsed < CodeforcesService._rate_limit:
+            time.sleep(CodeforcesService._rate_limit - elapsed)
         CodeforcesService._rate_last = time.time()
+
+    @staticmethod
+    def _safe_request(url: str, params: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
+        try:
+            response = requests.get(url, params=params, timeout=10)
+            return response.json()
+        except Exception as e:
+            logger.error(f"CF API request failed: {e}")
+            return None
 
     @staticmethod
     def fetch_problemset() -> List[Dict[str, Any]]:
@@ -42,11 +56,11 @@ class CodeforcesService:
         CodeforcesService._rate_guard()
 
         url = f"{CF_API_BASE}/problemset.problems"
-        response = requests.get(url, timeout=10)
-        data = response.json()
+        data = CodeforcesService._safe_request(url)
 
-        if data["status"] != "OK":
-            raise Exception("Codeforces API error")
+        if data is None or data.get("status") != "OK":
+            logger.error("CF problemset fetch failed")
+            return []
 
         problems = data["result"]["problems"]
 
@@ -90,6 +104,9 @@ class CodeforcesService:
                 if any(t in p.get("tags", []) for t in tags)
             ]
 
+        if not filtered:
+            return []
+
         selected = random.sample(filtered, min(count, len(filtered)))
         return [CodeforcesService._map_problem(p) for p in selected]
 
@@ -109,14 +126,13 @@ class CodeforcesService:
         CodeforcesService._rate_guard()
 
         url = f"{CF_API_BASE}/user.rating"
-        params = {"handle": handle}
-        response = requests.get(url, params=params, timeout=10)
-        data = response.json()
+        data = CodeforcesService._safe_request(url, {"handle": handle})
 
-        if data["status"] != "OK":
+        if data is None or data.get("status") != "OK":
+            logger.warning(f"CF rating fetch failed for {handle}")
             return None
 
-        contests = data["result"]
+        contests = data.get("result", [])
         if not contests:
             return None
 
@@ -129,7 +145,7 @@ class CodeforcesService:
         }
 
     @staticmethod
-    def fetch_submission_status(handle: str, count: int = 10) -> List[Dict[str, Any]]:
+    def fetch_submission_status(handle: str, count: int = 50) -> List[Dict[str, Any]]:
         cache_key = f"cf_submissions:{handle}"
 
         if redis_client:
@@ -144,14 +160,13 @@ class CodeforcesService:
         CodeforcesService._rate_guard()
 
         url = f"{CF_API_BASE}/user.status"
-        params = {"handle": handle}
-        response = requests.get(url, params=params, timeout=10)
-        data = response.json()
+        data = CodeforcesService._safe_request(url, {"handle": handle})
 
-        if data["status"] != "OK":
+        if data is None or data.get("status") != "OK":
+            logger.warning(f"CF submissions fetch failed for {handle}")
             return []
 
-        submissions = data["result"][:count]
+        submissions = data.get("result", [])[:count]
         return [
             {
                 "id": s.get("id"),
@@ -165,21 +180,35 @@ class CodeforcesService:
         ]
 
     @staticmethod
+    def _parse_problem_id(problem_id: str) -> tuple[Optional[int], Optional[str]]:
+        try:
+            if "-" not in str(problem_id):
+                return None, str(problem_id)
+            parts = str(problem_id).split("-", 1)
+            contest_id = int(parts[0]) if parts[0].isdigit() else None
+            index = parts[1] if len(parts) > 1 else None
+            return contest_id, index
+        except (ValueError, IndexError):
+            return None, None
+
+    @staticmethod
     def check_problem_solved(handle: str, problem_id: str) -> Optional[Dict[str, Any]]:
+        contest_id, index = CodeforcesService._parse_problem_id(problem_id)
+
+        if contest_id is None or index is None:
+            logger.warning(f"Invalid problem_id format: {problem_id}")
+            return {"solved": False, "submission_time": None, "verdict": "INVALID_PROBLEM_ID"}
+
         CodeforcesService._rate_guard()
 
         url = f"{CF_API_BASE}/user.status"
-        params = {"handle": handle}
-        response = requests.get(url, params=params, timeout=10)
-        data = response.json()
+        data = CodeforcesService._safe_request(url, {"handle": handle})
 
-        if data["status"] != "OK":
+        if data is None or data.get("status") != "OK":
+            logger.error(f"CF user.status failed for {handle}")
             return None
 
-        submissions = data["result"]
-        parts = problem_id.split("-")
-        contest_id = int(parts[0]) if len(parts) > 1 and parts[0].isdigit() else None
-        index = parts[-1]
+        submissions = data.get("result", [])
 
         for sub in submissions:
             prob = sub.get("problem", {})
@@ -199,4 +228,4 @@ class CodeforcesService:
                     "verdict": verdict,
                 }
 
-        return {"solved": False, "submission_time": None}
+        return {"solved": False, "submission_time": None, "verdict": "NO_SUBMISSION"}

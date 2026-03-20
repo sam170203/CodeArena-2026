@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any
 
 from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy.orm import Session
@@ -23,19 +23,31 @@ duels: Dict[str, Dict[str, Any]] = {}
 _problem_cache: Dict[str, Dict[str, Any]] = {}
 
 
+def _validate_uuid(value: str, field_name: str) -> None:
+    try:
+        uuid.UUID(value)
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"Invalid {field_name} format")
+
+
 @router.post("/create", response_model=DuelCreateResponse)
 def create_duel(data: DuelCreate):
+    _validate_uuid(data.host_id, "host_id")
+
+    if data.rating and (data.rating < 800 or data.rating > 3500):
+        raise HTTPException(status_code=400, detail="Rating must be between 800 and 3500")
+
     problem = CodeforcesService.generate_practice(
         rating=data.rating or 1200,
         count=1
     )
-    
+
     if not problem:
-        raise HTTPException(status_code=500, detail="Failed to generate problem")
-    
+        raise HTTPException(status_code=500, detail="Failed to generate problem. Try again later.")
+
     problem = problem[0]
     duel_id = str(uuid.uuid4())
-    
+
     duel = {
         "id": duel_id,
         "initiator_id": data.host_id,
@@ -49,10 +61,10 @@ def create_duel(data: DuelCreate):
         "finished_at": None,
         "created_at": datetime.utcnow().isoformat(),
     }
-    
+
     duels[duel_id] = duel
     _problem_cache[duel_id] = problem
-    
+
     return DuelCreateResponse(
         duel_id=duel_id,
         problem_id=problem["id"],
@@ -64,19 +76,22 @@ def create_duel(data: DuelCreate):
 
 @router.post("/join", response_model=DuelOut)
 def join_duel(data: DuelJoin):
+    _validate_uuid(data.duel_id, "duel_id")
+    _validate_uuid(data.opponent_id, "opponent_id")
+
     duel = duels.get(data.duel_id)
-    
+
     if not duel:
         raise HTTPException(status_code=404, detail="Duel not found")
-    
+
     if duel["status"] != "waiting":
         raise HTTPException(status_code=400, detail="Duel is not accepting players")
-    
+
     if duel["initiator_id"] == data.opponent_id:
         raise HTTPException(status_code=400, detail="Cannot join your own duel")
-    
+
     duel["opponent_id"] = data.opponent_id
-    
+
     return DuelOut(
         id=duel["id"],
         initiator_id=duel["initiator_id"],
@@ -91,25 +106,28 @@ def join_duel(data: DuelJoin):
 
 @router.post("/start", response_model=DuelStartResponse)
 def start_duel(duel_id: str, user_id: str):
+    _validate_uuid(duel_id, "duel_id")
+    _validate_uuid(user_id, "user_id")
+
     duel = duels.get(duel_id)
-    
+
     if not duel:
         raise HTTPException(status_code=404, detail="Duel not found")
-    
+
     if duel["initiator_id"] != user_id:
         raise HTTPException(status_code=403, detail="Only host can start the duel")
-    
+
     if not duel["opponent_id"]:
         raise HTTPException(status_code=400, detail="Waiting for opponent")
-    
+
     if duel["status"] != "waiting":
         raise HTTPException(status_code=400, detail="Duel already started or finished")
-    
+
     duel["status"] = "active"
     duel["started_at"] = datetime.utcnow().isoformat()
-    
+
     problem = _problem_cache.get(duel_id, {})
-    
+
     return DuelStartResponse(
         duel_id=duel_id,
         status="active",
@@ -121,11 +139,13 @@ def start_duel(duel_id: str, user_id: str):
 
 @router.get("/{duel_id}", response_model=DuelOut)
 def get_duel(duel_id: str):
+    _validate_uuid(duel_id, "duel_id")
+
     duel = duels.get(duel_id)
-    
+
     if not duel:
         raise HTTPException(status_code=404, detail="Duel not found")
-    
+
     return DuelOut(
         id=duel["id"],
         initiator_id=duel["initiator_id"],
@@ -140,19 +160,22 @@ def get_duel(duel_id: str):
 
 @router.get("/{duel_id}/problem")
 def get_duel_problem(duel_id: str, user_id: str):
+    _validate_uuid(duel_id, "duel_id")
+    _validate_uuid(user_id, "user_id")
+
     duel = duels.get(duel_id)
-    
+
     if not duel:
         raise HTTPException(status_code=404, detail="Duel not found")
-    
+
     if user_id not in [duel["initiator_id"], duel["opponent_id"]]:
         raise HTTPException(status_code=403, detail="Not a participant")
-    
+
     if duel["status"] != "active":
         raise HTTPException(status_code=400, detail="Duel not active")
-    
+
     problem = _problem_cache.get(duel_id, {})
-    
+
     return {
         "problem_id": duel["problem_id"],
         "problem_name": problem.get("name"),
@@ -165,44 +188,54 @@ def get_duel_problem(duel_id: str, user_id: str):
 
 @router.post("/submit", response_model=DuelSubmitResult)
 def submit_solution(duel_id: str, user_id: str, db: Session = Depends(get_db)):
+    _validate_uuid(duel_id, "duel_id")
+    _validate_uuid(user_id, "user_id")
+
     duel = duels.get(duel_id)
-    
+
     if not duel:
         raise HTTPException(status_code=404, detail="Duel not found")
-    
+
     if user_id not in [duel["initiator_id"], duel["opponent_id"]]:
         raise HTTPException(status_code=403, detail="Not a participant")
-    
+
+    if duel["status"] == "finished":
+        raise HTTPException(status_code=400, detail="Duel is finished")
+
     if duel["status"] != "active":
         raise HTTPException(
             status_code=400,
-            detail=f"Duel is {duel['status']}, submissions closed"
+            detail=f"Duel is {duel['status']}, submissions not allowed"
         )
-    
+
     user = crud.get_user_by_id(db, user_id)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-    
+
     if not user.cf_handle:
         raise HTTPException(
             status_code=400,
             detail="Set your Codeforces handle using /auth/cf-handle before submitting"
         )
-    
+
+    problem_id = duel.get("problem_id")
+    if not problem_id or "-" not in str(problem_id):
+        raise HTTPException(status_code=500, detail="Invalid problem in duel")
+
     result_data = CodeforcesService.check_problem_solved(
         user.cf_handle,
-        duel["problem_id"]
+        problem_id
     )
-    
+
     if result_data is None:
         raise HTTPException(
             status_code=503,
             detail="Codeforces API unavailable, please retry"
         )
-    
-    success = result_data.get("solved", False)
+
     verdict = result_data.get("verdict", "UNKNOWN")
-    
+    success = result_data.get("solved", False)
+
     submit_result = DuelSubmitResult(
         duel_id=duel_id,
         user_id=user_id,
@@ -210,11 +243,11 @@ def submit_solution(duel_id: str, user_id: str, db: Session = Depends(get_db)):
         verdict=verdict,
         winner_id=None
     )
-    
+
     if success:
         duel["status"] = "finished"
         duel["winner_id"] = user_id
         duel["finished_at"] = datetime.utcnow().isoformat()
         submit_result.winner_id = user_id
-    
+
     return submit_result
