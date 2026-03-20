@@ -1,7 +1,73 @@
-node_modules/
-frontend/.next/
-backend/.venv/
+# -----------------------------
+# Python
+# -----------------------------
 __pycache__/
-*.pyc
+*.py[cod]
+*$py.class
+
+# Compiled Python files
+*.so
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+
+# -----------------------------
+# Virtual Environment
+# -----------------------------
+venv/
+env/
+ENV/
+
+# -----------------------------
+# Environment Variables
+# -----------------------------
+.env
+.env.local
+.env.*
+
+# -----------------------------
+# Database
+# -----------------------------
+*.db
+*.sqlite3
+
+# Example
+codearena.db
+
+# -----------------------------
+# Logs
+# -----------------------------
 *.log
+
+# -----------------------------
+# OS Files
+# -----------------------------
 .DS_Store
+Thumbs.db
+
+# -----------------------------
+# IDE
+# -----------------------------
+.vscode/
+.idea/
+
+# -----------------------------
+# Testing
+# -----------------------------
+.pytest_cache/
+.coverage
+htmlcov/
+
+# -----------------------------
+# Docker
+# -----------------------------
+docker-compose.override.yml
+
+# -----------------------------
+# Node (if frontend added later)
+# -----------------------------
+node_modules/
+npm-debug.log
+yarn-error.log
