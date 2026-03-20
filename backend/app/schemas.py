@@ -2,7 +2,18 @@ from datetime import datetime
 from typing import Optional
 
 from pydantic import BaseModel
+from pydantic import BaseModel
+from typing import List, Optional
 
+class CFProblem(BaseModel):
+    contest_id: Optional[int]
+    index: Optional[str]
+    name: Optional[str]
+    rating: Optional[int]
+
+class CFProblemsResponse(BaseModel):
+    problems: List[CFProblem]
+    
 class UserCreate(BaseModel):
   username: str
   email: str

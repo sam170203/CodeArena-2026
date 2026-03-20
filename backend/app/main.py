@@ -7,6 +7,7 @@ from fastapi import FastAPI, HTTPException, Depends, WebSocket, WebSocketDisconn
 from sqlalchemy.orm import Session
 from .db import get_db
 from . import crud, schemas
+from .schemas import CFProblemsResponse
 
 app = FastAPI()
 
@@ -18,15 +19,31 @@ duel_states: dict[str, dict] = {}
 def health():
     return {"status": "ok"}
 
-@app.get("/cf/problems")
+from .schemas import CFProblemsResponse
+
+@app.get("/cf/problems", response_model=CFProblemsResponse)
 def cf_problems():
     try:
         resp = requests.get("https://codeforces.com/api/problemset.problems", timeout=5)
         if resp.status_code == 200:
             data = resp.json()
-            return {"problems": data.get("result", {}).get("problems", [])}
+            problems = data.get("result", {}).get("problems", [])
+
+            # map fields
+            mapped = [
+                {
+                    "contest_id": p.get("contestId"),
+                    "index": p.get("index"),
+                    "name": p.get("name"),
+                    "rating": p.get("rating"),
+                }
+                for p in problems[:50]
+            ]
+
+            return {"problems": mapped}
     except Exception:
         pass
+
     return {"problems": []}
 
 @app.post("/submissions/submit", response_model=schemas.SubmissionOut)
