@@ -83,9 +83,37 @@ class SubmissionOut(BaseModel):
 
 
 class DuelCreate(BaseModel):
-    initiator_id: str
-    opponent_id: Optional[str] = None
+    host_id: str
+    rating: Optional[int] = 1200
+
+
+class DuelCreateResponse(BaseModel):
+    duel_id: str
     problem_id: str
+    problem_name: Optional[str] = None
+    rating: Optional[int] = None
+    status: str = "waiting"
+
+
+class DuelJoin(BaseModel):
+    duel_id: str
+    opponent_id: str
+
+
+class DuelStartResponse(BaseModel):
+    duel_id: str
+    status: str
+    problem_id: str
+    problem_name: Optional[str] = None
+    message: str
+
+
+class DuelSubmitResult(BaseModel):
+    duel_id: str
+    user_id: str
+    success: bool
+    verdict: str
+    winner_id: Optional[str] = None
 
 
 class DuelOut(BaseModel):
@@ -94,6 +122,7 @@ class DuelOut(BaseModel):
     opponent_id: Optional[str] = None
     problem_id: str
     status: str
+    winner_id: Optional[str] = None
     started_at: Optional[datetime] = None
     finished_at: Optional[datetime] = None
 

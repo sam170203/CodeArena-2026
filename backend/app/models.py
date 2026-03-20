@@ -44,8 +44,8 @@ class Duel(Base):
     id = Column(String(36), primary_key=True, default=generate_uuid)
     initiator_id = Column(String(36), ForeignKey("users.id"), nullable=False)
     opponent_id = Column(String(36), ForeignKey("users.id"), nullable=True)
-    problem_id = Column(String(128), nullable=False, index=True)
-    status = Column(String(32), default="pending")  # pending, started, finished
+    problem_id = Column(String(128), nullable=False)
+    status = Column(String(32), default="waiting")  # waiting, active, finished
     started_at = Column(DateTime, nullable=True)
     finished_at = Column(DateTime, nullable=True)
     winner_id = Column(String(36), ForeignKey("users.id"), nullable=True)

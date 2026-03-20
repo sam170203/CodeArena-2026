@@ -10,11 +10,13 @@ from .schemas import CFProblemsResponse
 from .services.codeforces import CodeforcesService
 from .api.routes.auth import router as auth_router
 from .api.routes.practice import router as practice_router
+from .api.routes.duel import router as duel_router
 
 app = FastAPI()
 
 app.include_router(auth_router)
 app.include_router(practice_router)
+app.include_router(duel_router)
 
 # In-memory structures for MVP (replace with DB-backed ORM later)
 duel_subs: dict[str, set] = {}
