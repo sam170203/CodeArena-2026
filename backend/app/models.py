@@ -28,6 +28,7 @@ class User(Base):
     email = Column(String(120), unique=True, nullable=True)
     hashed_password = Column(String(255), nullable=True)
     xp = Column(Integer, default=0)
+    cf_handle = Column(String(100), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

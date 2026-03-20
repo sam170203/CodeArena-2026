@@ -33,6 +33,20 @@ def create_user(db: Session, user_in: schemas.UserCreate) -> models.User:
     db.refresh(user)
     return user
 
+
+def get_user_by_id(db: Session, user_id: str) -> Optional[models.User]:
+    return db.query(models.User).filter(models.User.id == user_id).first()
+
+
+def update_user_cf_handle(db: Session, user_id: str, cf_handle: str) -> Optional[models.User]:
+    user = db.query(models.User).filter(models.User.id == user_id).first()
+    if user:
+        user.cf_handle = cf_handle
+        db.commit()
+        db.refresh(user)
+    return user
+
+
 # Submissions
 
 def create_submission(db: Session, submission_in: schemas.SubmissionCreate, user_id: str) -> models.Submission:

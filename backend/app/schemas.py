@@ -37,6 +37,27 @@ class UserOut(BaseModel):
         from_attributes = True
 
 
+class UserLogin(BaseModel):
+    username: str
+    password: str
+
+
+class TokenResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+
+
+class UserMe(BaseModel):
+    id: str
+    username: str
+    email: Optional[str] = None
+    cf_handle: Optional[str] = None
+    xp: int = 0
+    created_at: Optional[datetime] = None
+
+    model_config = {"from_attributes": True}
+
+
 # ---------------- Submission ----------------
 class SubmissionCreate(BaseModel):
     user_id: str

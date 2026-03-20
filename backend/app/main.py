@@ -8,8 +8,11 @@ from .db import get_db
 from . import crud, schemas
 from .schemas import CFProblemsResponse
 from .services.codeforces import CodeforcesService
+from .api.routes.auth import router as auth_router
 
 app = FastAPI()
+
+app.include_router(auth_router)
 
 # In-memory structures for MVP (replace with DB-backed ORM later)
 duel_subs: dict[str, set] = {}
