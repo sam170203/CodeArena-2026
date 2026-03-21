@@ -26,7 +26,6 @@ duel_states: dict[str, dict] = {}
 def health():
     return {"status": "ok"}
 
-from .schemas import CFProblemsResponse
 
 @app.get("/cf/problems", response_model=CFProblemsResponse)
 def cf_problems():

@@ -2,10 +2,8 @@ fastapi
 uvicorn
 pydantic
 requests
-websockets
 sqlalchemy
-psycopg2-binary
-httpx
-aiofiles
-alembic
 redis
+httpx
+websockets
+aiofiles
