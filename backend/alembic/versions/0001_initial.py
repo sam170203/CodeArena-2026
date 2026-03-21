@@ -65,7 +65,7 @@ def upgrade():
         sa.Column("created_at", sa.DateTime(), nullable=True),
         sa.PrimaryKeyConstraint("id")
     )
-}
+
 
 def downgrade():
     op.drop_table("chat_messages")
