@@ -1,4 +1,5 @@
 import uuid
+import time
 from datetime import datetime
 from typing import Optional, Dict, Any
 
@@ -19,6 +20,10 @@ from app import crud
 
 router = APIRouter(prefix="/duel", tags=["duel"])
 
+# NOTE:
+# Duels are stored in-memory for MVP.
+# This means all duels will be lost if the server restarts.
+# Future improvement: move to database persistence.
 duels: Dict[str, Dict[str, Any]] = {}
 _problem_cache: Dict[str, Dict[str, Any]] = {}
 
@@ -60,6 +65,7 @@ def create_duel(data: DuelCreate):
         "started_at": None,
         "finished_at": None,
         "created_at": datetime.utcnow().isoformat(),
+        "last_submission_time": {},
     }
 
     duels[duel_id] = duel
@@ -172,7 +178,7 @@ def get_duel_problem(duel_id: str, user_id: str):
         raise HTTPException(status_code=403, detail="Not a participant")
 
     if duel["status"] != "active":
-        raise HTTPException(status_code=400, detail="Duel not active")
+        raise HTTPException(status_code=403, detail="Duel not started yet")
 
     problem = _problem_cache.get(duel_id, {})
 
@@ -222,6 +228,14 @@ def submit_solution(duel_id: str, user_id: str, db: Session = Depends(get_db)):
     if not problem_id or "-" not in str(problem_id):
         raise HTTPException(status_code=500, detail="Invalid problem in duel")
 
+    now = time.time()
+    last_time = duel["last_submission_time"].get(user_id)
+    if last_time and now - last_time < 5:
+        raise HTTPException(
+            status_code=429,
+            detail="Too many submissions. Please wait 5 seconds."
+        )
+
     result_data = CodeforcesService.check_problem_solved(
         user.cf_handle,
         problem_id
@@ -243,6 +257,8 @@ def submit_solution(duel_id: str, user_id: str, db: Session = Depends(get_db)):
         verdict=verdict,
         winner_id=None
     )
+
+    duel["last_submission_time"][user_id] = now
 
     if success:
         duel["status"] = "finished"

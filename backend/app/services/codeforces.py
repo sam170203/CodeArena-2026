@@ -182,12 +182,16 @@ class CodeforcesService:
     @staticmethod
     def _parse_problem_id(problem_id: str) -> tuple[Optional[int], Optional[str]]:
         try:
-            if "-" not in str(problem_id):
-                return None, str(problem_id)
-            parts = str(problem_id).split("-", 1)
-            contest_id = int(parts[0]) if parts[0].isdigit() else None
-            index = parts[1] if len(parts) > 1 else None
-            return contest_id, index
+            parts = str(problem_id).split("-")
+            if len(parts) == 3 and parts[0] == "cf":
+                try:
+                    contest_id = int(parts[1])
+                    index = parts[2]
+                    return contest_id, index
+                except Exception:
+                    return None, None
+            else:
+                return None, None
         except (ValueError, IndexError):
             return None, None
 
