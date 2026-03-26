@@ -14,7 +14,8 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import relationship
 
-from .db import Base  # ensure backend/app/db.py defines Base = declarative_base()
+from .db import Base
+
 
 def generate_uuid() -> str:
     return str(uuid.uuid4())
@@ -28,13 +29,18 @@ class User(Base):
     email = Column(String(120), unique=True, nullable=True)
     hashed_password = Column(String(255), nullable=True)
     xp = Column(Integer, default=0)
-    cf_handle = Column(String(100), nullable=True)
+    cf_handle = Column(String(100), nullable=True, index=True)
+    cf_rating = Column(Integer, default=0)
+    cf_rank = Column(String(50), nullable=True)
+    solved_count = Column(Integer, default=0)
+
+    duel_wins = Column(Integer, default=0)
+    duel_losses = Column(Integer, default=0)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     submissions = relationship("Submission", back_populates="user", cascade="all, delete-orphan")
     rooms = relationship("Room", back_populates="host")
-    # duels relationships are available via Duel's foreign keys
     chat_messages = relationship("ChatMessage", back_populates="user")
 
 
@@ -45,12 +51,13 @@ class Duel(Base):
     initiator_id = Column(String(36), ForeignKey("users.id"), nullable=False)
     opponent_id = Column(String(36), ForeignKey("users.id"), nullable=True)
     problem_id = Column(String(128), nullable=False)
-    status = Column(String(32), default="waiting")  # waiting, active, finished
+    status = Column(String(32), default="waiting")
     started_at = Column(DateTime, nullable=True)
     finished_at = Column(DateTime, nullable=True)
     winner_id = Column(String(36), ForeignKey("users.id"), nullable=True)
 
     submissions = relationship("Submission", back_populates="duel")
+    chat_messages = relationship("ChatMessage", back_populates="duel")
 
 
 class Submission(Base):
@@ -63,7 +70,7 @@ class Submission(Base):
     problem_id = Column(String(128), nullable=False)
     language = Column(String(16), nullable=False)
     code = Column(Text, nullable=False)
-    status = Column(String(32), default="queued")  # queued, running, AC, WA, TLE, RE
+    status = Column(String(32), default="queued")
     stdout = Column(Text, nullable=True)
     stderr = Column(Text, nullable=True)
     runtime_ms = Column(Integer, nullable=True)
@@ -104,7 +111,7 @@ class ChatMessage(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
     room = relationship("Room", back_populates="chat_messages")
-    duel = relationship("Duel", backref="chat_messages")
+    duel = relationship("Duel", back_populates="chat_messages")
     user = relationship("User", back_populates="chat_messages")
 
 
@@ -116,9 +123,21 @@ class Problem(Base):
     index = Column(String(10), nullable=False)
     name = Column(String(255), nullable=False)
     rating = Column(Integer, nullable=True)
-    tags = Column(Text, nullable=True)  # store comma-separated tags for now
+    tags = Column(Text, nullable=True)
     time_limit = Column(Integer, nullable=True)
     memory_limit = Column(Integer, nullable=True)
 
     def __repr__(self) -> str:
         return f"<Problem {self.contest_id}-{self.index} {self.name}>"
+
+
+class SolvedProblem(Base):
+    __tablename__ = "solved_problems"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(String(36), ForeignKey("users.id"), index=True, nullable=False)
+
+    contest_id = Column(Integer)
+    problem_index = Column(String)
+    problem_name = Column(String)
+    rating = Column(Integer)

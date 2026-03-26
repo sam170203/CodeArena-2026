@@ -20,10 +20,7 @@ from app import crud
 
 router = APIRouter(prefix="/duel", tags=["duel"])
 
-# NOTE:
-# Duels are stored in-memory for MVP.
-# This means all duels will be lost if the server restarts.
-# Future improvement: move to database persistence.
+# In-memory storage for MVP
 duels: Dict[str, Dict[str, Any]] = {}
 _problem_cache: Dict[str, Dict[str, Any]] = {}
 
@@ -35,6 +32,16 @@ def _validate_uuid(value: str, field_name: str) -> None:
         raise HTTPException(status_code=400, detail=f"Invalid {field_name} format")
 
 
+def _build_problem_id(problem: Dict[str, Any]) -> str:
+    contest_id = problem.get("contest_id")
+    index = problem.get("index")
+
+    if contest_id is None or index is None:
+        raise HTTPException(status_code=500, detail="Generated problem is missing contest_id/index")
+
+    return f"{contest_id}-{index}"
+
+
 @router.post("/create", response_model=DuelCreateResponse)
 def create_duel(data: DuelCreate):
     _validate_uuid(data.host_id, "host_id")
@@ -42,29 +49,30 @@ def create_duel(data: DuelCreate):
     if data.rating and (data.rating < 800 or data.rating > 3500):
         raise HTTPException(status_code=400, detail="Rating must be between 800 and 3500")
 
-    problem = CodeforcesService.generate_practice(
+    problem_list = CodeforcesService.generate_practice(
         rating=data.rating or 1200,
-        count=1
+        count=1,
     )
 
-    if not problem:
+    if not problem_list:
         raise HTTPException(status_code=500, detail="Failed to generate problem. Try again later.")
 
-    problem = problem[0]
+    problem = problem_list[0]
+    problem_id = _build_problem_id(problem)
     duel_id = str(uuid.uuid4())
 
     duel = {
         "id": duel_id,
         "initiator_id": data.host_id,
         "opponent_id": None,
-        "problem_id": problem["id"],
+        "problem_id": problem_id,
         "problem_name": problem.get("name"),
         "rating": problem.get("rating"),
         "status": "waiting",
         "winner_id": None,
         "started_at": None,
         "finished_at": None,
-        "created_at": datetime.utcnow().isoformat(),
+        "created_at": datetime.utcnow(),
         "last_submission_time": {},
     }
 
@@ -73,10 +81,10 @@ def create_duel(data: DuelCreate):
 
     return DuelCreateResponse(
         duel_id=duel_id,
-        problem_id=problem["id"],
+        problem_id=problem_id,
         problem_name=problem.get("name"),
         rating=problem.get("rating"),
-        status="waiting"
+        status="waiting",
     )
 
 
@@ -130,7 +138,7 @@ def start_duel(duel_id: str, user_id: str):
         raise HTTPException(status_code=400, detail="Duel already started or finished")
 
     duel["status"] = "active"
-    duel["started_at"] = datetime.utcnow().isoformat()
+    duel["started_at"] = datetime.utcnow()
 
     problem = _problem_cache.get(duel_id, {})
 
@@ -139,7 +147,7 @@ def start_duel(duel_id: str, user_id: str):
         status="active",
         problem_id=duel["problem_id"],
         problem_name=problem.get("name"),
-        message="Duel started! First correct submission wins."
+        message="Duel started! First correct submission wins.",
     )
 
 
@@ -211,7 +219,7 @@ def submit_solution(duel_id: str, user_id: str, db: Session = Depends(get_db)):
     if duel["status"] != "active":
         raise HTTPException(
             status_code=400,
-            detail=f"Duel is {duel['status']}, submissions not allowed"
+            detail=f"Duel is {duel['status']}, submissions not allowed",
         )
 
     user = crud.get_user_by_id(db, user_id)
@@ -221,7 +229,7 @@ def submit_solution(duel_id: str, user_id: str, db: Session = Depends(get_db)):
     if not user.cf_handle:
         raise HTTPException(
             status_code=400,
-            detail="Set your Codeforces handle using /auth/cf-handle before submitting"
+            detail="Set your Codeforces handle using /auth/cf-handle before submitting",
         )
 
     problem_id = duel.get("problem_id")
@@ -233,37 +241,37 @@ def submit_solution(duel_id: str, user_id: str, db: Session = Depends(get_db)):
     if last_time and now - last_time < 5:
         raise HTTPException(
             status_code=429,
-            detail="Too many submissions. Please wait 5 seconds."
+            detail="Too many submissions. Please wait 5 seconds.",
         )
 
     result_data = CodeforcesService.check_problem_solved(
         user.cf_handle,
-        problem_id
+        problem_id,
     )
 
     if result_data is None:
         raise HTTPException(
             status_code=503,
-            detail="Codeforces API unavailable, please retry"
+            detail="Codeforces API unavailable, please retry",
         )
 
     verdict = result_data.get("verdict", "UNKNOWN")
     success = result_data.get("solved", False)
+
+    duel["last_submission_time"][user_id] = now
 
     submit_result = DuelSubmitResult(
         duel_id=duel_id,
         user_id=user_id,
         success=success,
         verdict=verdict,
-        winner_id=None
+        winner_id=None,
     )
-
-    duel["last_submission_time"][user_id] = now
 
     if success:
         duel["status"] = "finished"
         duel["winner_id"] = user_id
-        duel["finished_at"] = datetime.utcnow().isoformat()
+        duel["finished_at"] = datetime.utcnow()
         submit_result.winner_id = user_id
 
     return submit_result

@@ -8,6 +8,8 @@ import requests
 
 logger = logging.getLogger(__name__)
 
+
+
 try:
     import redis
     redis_client = redis.Redis(host="localhost", port=6379, db=0, decode_responses=True)
@@ -34,11 +36,18 @@ class CodeforcesService:
     @staticmethod
     def _safe_request(url: str, params: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
         try:
-            response = requests.get(url, params=params, timeout=10)
+            response = requests.get(
+                url,
+                params=params,
+                timeout=10,
+                headers={"User-Agent": "CodeArena/1.0"}
+            )
             return response.json()
         except Exception as e:
             logger.error(f"CF API request failed: {e}")
             return None
+
+    # ------------------ PROBLEMSET ------------------
 
     @staticmethod
     def fetch_problemset() -> List[Dict[str, Any]]:
@@ -48,8 +57,7 @@ class CodeforcesService:
             try:
                 cached = redis_client.get(cache_key)
                 if cached:
-                    val = cached.decode() if isinstance(cached, bytes) else cached
-                    return json.loads(val)
+                    return json.loads(cached)
             except Exception:
                 pass
 
@@ -75,7 +83,6 @@ class CodeforcesService:
     @staticmethod
     def _map_problem(p: Dict[str, Any]) -> Dict[str, Any]:
         return {
-            "id": f"{p.get('contestId')}-{p.get('index')}",
             "contest_id": p.get("contestId"),
             "index": p.get("index"),
             "name": p.get("name"),
@@ -84,6 +91,8 @@ class CodeforcesService:
             "time_limit": p.get("timeLimit"),
             "memory_limit": p.get("memoryLimit"),
         }
+
+    # ------------------ PRACTICE ------------------
 
     @staticmethod
     def generate_practice(
@@ -110,6 +119,8 @@ class CodeforcesService:
         selected = random.sample(filtered, min(count, len(filtered)))
         return [CodeforcesService._map_problem(p) for p in selected]
 
+    # ------------------ USER RATING ------------------
+
     @staticmethod
     def fetch_user_rating(handle: str) -> Optional[Dict[str, Any]]:
         cache_key = f"cf_user_rating:{handle}"
@@ -118,8 +129,7 @@ class CodeforcesService:
             try:
                 cached = redis_client.get(cache_key)
                 if cached:
-                    val = cached.decode() if isinstance(cached, bytes) else cached
-                    return json.loads(val)
+                    return json.loads(cached)
             except Exception:
                 pass
 
@@ -137,12 +147,23 @@ class CodeforcesService:
             return None
 
         latest = contests[-1]
-        return {
+
+        result = {
             "handle": handle,
             "current_rating": latest.get("newRating"),
             "max_rating": max(c.get("newRating", 0) for c in contests),
             "rank": latest.get("rank"),
         }
+
+        if redis_client:
+            try:
+                redis_client.set(cache_key, json.dumps(result), ex=600)
+            except Exception:
+                pass
+
+        return result
+
+    # ------------------ SUBMISSIONS ------------------
 
     @staticmethod
     def fetch_submission_status(handle: str, count: int = 50) -> List[Dict[str, Any]]:
@@ -152,8 +173,7 @@ class CodeforcesService:
             try:
                 cached = redis_client.get(cache_key)
                 if cached:
-                    val = cached.decode() if isinstance(cached, bytes) else cached
-                    return json.loads(val)
+                    return json.loads(cached)
             except Exception:
                 pass
 
@@ -167,69 +187,111 @@ class CodeforcesService:
             return []
 
         submissions = data.get("result", [])[:count]
-        return [
-            {
+
+        result = []
+        for s in submissions:
+            problem = s.get("problem", {})
+            result.append({
                 "id": s.get("id"),
-                "problem_id": f"{s['problem'].get('contestId')}-{s['problem'].get('index')}",
+                "problem_id": f"{problem.get('contestId')}-{problem.get('index')}",
                 "verdict": s.get("verdict"),
                 "time_ms": s.get("timeConsumedMillis"),
-                "memory_kb": s.get("memoryConsumedBytes", 0) // 1024,
+                "memory_kb": (s.get("memoryConsumedBytes") or 0) // 1024,
                 "language": s.get("programmingLanguage"),
-            }
-            for s in submissions
-        ]
+            })
+
+        if redis_client:
+            try:
+                redis_client.set(cache_key, json.dumps(result), ex=120)
+            except Exception:
+                pass
+
+        return result
+
+    # ------------------ CHECK SOLVED ------------------
 
     @staticmethod
     def _parse_problem_id(problem_id: str) -> tuple[Optional[int], Optional[str]]:
         try:
-            parts = str(problem_id).split("-")
-            if len(parts) == 3 and parts[0] == "cf":
-                try:
-                    contest_id = int(parts[1])
-                    index = parts[2]
-                    return contest_id, index
-                except Exception:
-                    return None, None
-            else:
-                return None, None
-        except (ValueError, IndexError):
+            contest_id, index = problem_id.split("-")
+            return int(contest_id), index
+        except Exception:
             return None, None
 
     @staticmethod
     def check_problem_solved(handle: str, problem_id: str) -> Optional[Dict[str, Any]]:
         contest_id, index = CodeforcesService._parse_problem_id(problem_id)
 
-        if contest_id is None or index is None:
-            logger.warning(f"Invalid problem_id format: {problem_id}")
-            return {"solved": False, "submission_time": None, "verdict": "INVALID_PROBLEM_ID"}
+        if contest_id is None:
+            return {"solved": False, "verdict": "INVALID_PROBLEM_ID"}
 
-        CodeforcesService._rate_guard()
-
-        url = f"{CF_API_BASE}/user.status"
-        data = CodeforcesService._safe_request(url, {"handle": handle})
-
-        if data is None or data.get("status") != "OK":
-            logger.error(f"CF user.status failed for {handle}")
-            return None
-
-        submissions = data.get("result", [])
+        submissions = CodeforcesService.fetch_submission_status(handle, count=1000)
 
         for sub in submissions:
-            prob = sub.get("problem", {})
-            if prob.get("contestId") == contest_id and prob.get("index") == index:
-                verdict = sub.get("verdict", "")
-                if verdict == "OK":
+            pid = sub.get("problem_id")
+            if pid == problem_id:
+                if sub.get("verdict") == "OK":
                     return {
                         "solved": True,
-                        "submission_time": sub.get("creationTimeSeconds"),
-                        "verdict": verdict,
-                        "time_ms": sub.get("timeConsumedMillis"),
-                        "memory_kb": sub.get("memoryConsumedBytes", 0) // 1024,
+                        "verdict": "OK",
                     }
                 return {
                     "solved": False,
-                    "submission_time": sub.get("creationTimeSeconds"),
-                    "verdict": verdict,
+                    "verdict": sub.get("verdict"),
                 }
 
-        return {"solved": False, "submission_time": None, "verdict": "NO_SUBMISSION"}
+        return {"solved": False, "verdict": "NO_SUBMISSION"}
+
+
+# ------------------ HELPERS ------------------
+
+def get_user_info(handle: str):
+    data = CodeforcesService.fetch_user_rating(handle)
+
+    if not data:
+        raise Exception("Invalid handle")
+
+    return {
+        "handle": handle,
+        "rating": data.get("current_rating", 0),
+        "rank": data.get("rank", "unrated"),
+    }
+
+
+def get_user_solved_problems(handle: str):
+    submissions = CodeforcesService.fetch_submission_status(handle, count=1000)
+
+    solved = set()
+    solved_list = []
+
+    for sub in submissions:
+        if sub.get("verdict") != "OK":
+            continue
+
+        problem_id = sub.get("problem_id")
+        if not problem_id:
+            continue
+
+        try:
+            contest_id, index = problem_id.split("-")
+            contest_id = int(contest_id)
+        except:
+            continue
+
+        key = (contest_id, index)
+
+        if key in solved:
+            continue
+
+        solved.add(key)
+
+        solved_list.append((
+            contest_id,
+            index,
+            None,
+            None
+        ))
+
+    return solved_list
+
+

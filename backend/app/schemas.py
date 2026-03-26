@@ -1,6 +1,7 @@
 from datetime import datetime
 from typing import List, Optional
-from pydantic import BaseModel
+
+from pydantic import BaseModel, Field, ConfigDict
 
 
 class CFProblem(BaseModel):
@@ -8,9 +9,11 @@ class CFProblem(BaseModel):
     index: Optional[str] = None
     name: Optional[str] = None
     rating: Optional[int] = None
-    tags: Optional[List[str]] = []
+    tags: List[str] = Field(default_factory=list)
     time_limit: Optional[int] = None
     memory_limit: Optional[int] = None
+
+    model_config = ConfigDict(from_attributes=True)
 
 
 class PracticeResponse(BaseModel):
@@ -25,15 +28,21 @@ class UserCreate(BaseModel):
     username: str
     email: str
     password: str
+    cf_handle: str | None = None
 
 
 class UserOut(BaseModel):
     id: str
     username: str
-    email: str
+    email: Optional[str] = None
+    cf_handle: Optional[str] = None
+    xp: int = 0
+    cf_rating: int = 0
+    cf_rank: Optional[str] = None
+    solved_count: int = 0
     created_at: Optional[datetime] = None
 
-    model_config = {"from_attributes": True}
+    model_config = ConfigDict(from_attributes=True)
 
 
 class UserLogin(BaseModel):
@@ -52,9 +61,12 @@ class UserMe(BaseModel):
     email: Optional[str] = None
     cf_handle: Optional[str] = None
     xp: int = 0
+    cf_rating: int = 0
+    cf_rank: Optional[str] = None
+    solved_count: int = 0
     created_at: Optional[datetime] = None
 
-    model_config = {"from_attributes": True}
+    model_config = ConfigDict(from_attributes=True)
 
 
 class SubmissionCreate(BaseModel):
@@ -79,7 +91,7 @@ class SubmissionOut(BaseModel):
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 
-    model_config = {"from_attributes": True}
+    model_config = ConfigDict(from_attributes=True)
 
 
 class DuelCreate(BaseModel):
@@ -126,7 +138,7 @@ class DuelOut(BaseModel):
     started_at: Optional[datetime] = None
     finished_at: Optional[datetime] = None
 
-    model_config = {"from_attributes": True}
+    model_config = ConfigDict(from_attributes=True)
 
 
 class RoomCreate(BaseModel):
@@ -143,7 +155,7 @@ class RoomOut(BaseModel):
     problem_id: Optional[str] = None
     max_participants: int
 
-    model_config = {"from_attributes": True}
+    model_config = ConfigDict(from_attributes=True)
 
 
 class ChatMessageCreate(BaseModel):
@@ -161,4 +173,4 @@ class ChatMessageOut(BaseModel):
     message: str
     created_at: datetime
 
-    model_config = {"from_attributes": True}
+    model_config = ConfigDict(from_attributes=True)
