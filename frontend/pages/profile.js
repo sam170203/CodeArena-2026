@@ -5,74 +5,68 @@ import { auth } from '../lib/api';
 
 export default function ProfilePage() {
   const router = useRouter();
-  const { token, user, fetchMe } = useAuthStore();
-
+  const { token, user, fetchMe, hydrate } = useAuthStore();
   const [cfHandle, setCfHandle] = useState('');
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
 
   useEffect(() => {
-    if (!token) {
-      router.push('/login');
-    } else {
-      fetchMe();
-    }
-  }, []);
+    hydrate();
+  }, [hydrate]);
 
   useEffect(() => {
-    if (user?.cf_handle) {
-      setCfHandle(user.cf_handle);
+    if (token === null) return;
+    if (!token) {
+      router.push('/login');
+      return;
     }
+    fetchMe();
+  }, [token, router, fetchMe]);
+
+  useEffect(() => {
+    if (user?.cf_handle) setCfHandle(user.cf_handle);
   }, [user]);
 
   const updateHandle = async () => {
-    if (!user?.id) return;
-
     setLoading(true);
     setMessage('');
-
     try {
-      await auth.updateCfHandle(user.id, cfHandle);
-      setMessage('Updated successfully!');
-      fetchMe();
+      await auth.updateCfHandle(cfHandle);
+      await auth.syncCf(cfHandle);
+      await fetchMe();
+      setMessage('CF handle synced successfully.');
     } catch (err) {
       console.error(err);
-      setMessage('Failed to update');
+      setMessage(err.response?.data?.detail || 'Failed to sync Codeforces handle');
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div style={{
-      minHeight: '100vh',
-      background: '#020617',
-      color: 'white',
-      padding: '32px'
-    }}>
-      <h1>Profile</h1>
+    <div style={{ maxWidth: 720, margin: '60px auto', padding: 20 }}>
+      <h1 style={{ marginBottom: 20 }}>Profile</h1>
 
-      <div style={{ marginTop: '20px' }}>
-        <p><strong>Email:</strong> {user?.email}</p>
-        <p><strong>Username:</strong> {user?.username}</p>
-      </div>
+      <p><strong>Email:</strong> {user?.email || '—'}</p>
+      <p><strong>Username:</strong> {user?.username || 'Loading...'}</p>
+      <p><strong>CF Rating:</strong> {user?.cf_rating ?? 0}</p>
+      <p><strong>CF Rank:</strong> {user?.cf_rank || 'unrated'}</p>
+      <p><strong>Solved Count:</strong> {user?.solved_count ?? 0}</p>
 
-      <div style={{ marginTop: '30px' }}>
+      <div style={{ marginTop: 20 }}>
         <h3>Codeforces Handle</h3>
-
         <input
           value={cfHandle}
           onChange={(e) => setCfHandle(e.target.value)}
           placeholder="Enter your handle"
-          style={{ marginRight: '10px' }}
+          style={{ width: '100%', marginTop: 10, marginBottom: 10, padding: 10 }}
         />
-
-        <button onClick={updateHandle} disabled={loading}>
-          {loading ? 'Saving...' : 'Save'}
+        <button onClick={updateHandle} disabled={loading} style={{ padding: 10 }}>
+          {loading ? 'Syncing...' : 'Save & Sync'}
         </button>
-
-        {message && <p>{message}</p>}
       </div>
+
+      {message && <p style={{ marginTop: 12 }}>{message}</p>}
     </div>
   );
 }

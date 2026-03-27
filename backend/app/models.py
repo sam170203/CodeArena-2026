@@ -1,17 +1,10 @@
 # backend/app/models.py
-"""SQLAlchemy ORM models for CodeArena (Phase 1 / Phase 2 safe version)."""
+"""SQLAlchemy ORM models for CodeArena."""
 
 from datetime import datetime
 import uuid
 
-from sqlalchemy import (
-    Column,
-    String,
-    Integer,
-    DateTime,
-    Text,
-    ForeignKey,
-)
+from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import relationship
 
 from .db import Base
@@ -136,7 +129,6 @@ class SolvedProblem(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(String(36), ForeignKey("users.id"), index=True, nullable=False)
-
     contest_id = Column(Integer)
     problem_index = Column(String)
     problem_name = Column(String)

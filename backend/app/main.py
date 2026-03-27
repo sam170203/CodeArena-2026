@@ -2,12 +2,12 @@ import json
 import os
 import time
 
-from fastapi import FastAPI, HTTPException, Depends, WebSocket, WebSocketDisconnect
+from fastapi import Depends, FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 
-from .db import get_db, engine, Base
-from . import crud, schemas, models
+from . import crud, models, schemas
+from .db import Base, engine, get_db
 from .schemas import CFProblemsResponse
 from .services.codeforces import CodeforcesService
 from .api.routes.auth import router as auth_router
@@ -20,7 +20,10 @@ app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=[
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -49,6 +52,11 @@ def _normalize_problem(problem):
     }
 
 
+@app.get("/")
+def root():
+    return {"status": "ok", "service": "CodeArena backend"}
+
+
 @app.get("/health")
 def health():
     return {"status": "ok"}
@@ -67,7 +75,7 @@ def cf_problems():
 
 @app.post("/submissions/submit", response_model=schemas.SubmissionOut)
 async def submit(sub_in: schemas.SubmissionCreate, db: Session = Depends(get_db)):
-    user = db.query(models.User).filter(models.User.id == sub_in.user_id).first()
+    user = crud.get_user_by_id(db, sub_in.user_id)
     if user is None:
         raise HTTPException(status_code=404, detail="User not found")
 

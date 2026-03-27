@@ -1,26 +1,19 @@
-import uuid
 import time
+import uuid
 from datetime import datetime
-from typing import Optional, Dict, Any
+from typing import Any, Dict
 
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from app.db import get_db
-from app.schemas import (
-    DuelCreate,
-    DuelCreateResponse,
-    DuelJoin,
-    DuelStartResponse,
-    DuelSubmitResult,
-    DuelOut,
-)
-from app.services.codeforces import CodeforcesService
 from app import crud
+from app.db import get_db
+from app.models import User
+from app.schemas import DuelCreate, DuelCreateResponse, DuelJoin, DuelOut, DuelStartResponse, DuelSubmitResult
+from app.services.codeforces import CodeforcesService
 
 router = APIRouter(prefix="/duel", tags=["duel"])
 
-# In-memory storage for MVP
 duels: Dict[str, Dict[str, Any]] = {}
 _problem_cache: Dict[str, Dict[str, Any]] = {}
 
@@ -35,10 +28,8 @@ def _validate_uuid(value: str, field_name: str) -> None:
 def _build_problem_id(problem: Dict[str, Any]) -> str:
     contest_id = problem.get("contest_id")
     index = problem.get("index")
-
     if contest_id is None or index is None:
         raise HTTPException(status_code=500, detail="Generated problem is missing contest_id/index")
-
     return f"{contest_id}-{index}"
 
 
@@ -94,7 +85,6 @@ def join_duel(data: DuelJoin):
     _validate_uuid(data.opponent_id, "opponent_id")
 
     duel = duels.get(data.duel_id)
-
     if not duel:
         raise HTTPException(status_code=404, detail="Duel not found")
 
@@ -124,7 +114,6 @@ def start_duel(duel_id: str, user_id: str):
     _validate_uuid(user_id, "user_id")
 
     duel = duels.get(duel_id)
-
     if not duel:
         raise HTTPException(status_code=404, detail="Duel not found")
 
@@ -156,7 +145,6 @@ def get_duel(duel_id: str):
     _validate_uuid(duel_id, "duel_id")
 
     duel = duels.get(duel_id)
-
     if not duel:
         raise HTTPException(status_code=404, detail="Duel not found")
 
@@ -178,7 +166,6 @@ def get_duel_problem(duel_id: str, user_id: str):
     _validate_uuid(user_id, "user_id")
 
     duel = duels.get(duel_id)
-
     if not duel:
         raise HTTPException(status_code=404, detail="Duel not found")
 
@@ -189,7 +176,6 @@ def get_duel_problem(duel_id: str, user_id: str):
         raise HTTPException(status_code=403, detail="Duel not started yet")
 
     problem = _problem_cache.get(duel_id, {})
-
     return {
         "problem_id": duel["problem_id"],
         "problem_name": problem.get("name"),
@@ -206,7 +192,6 @@ def submit_solution(duel_id: str, user_id: str, db: Session = Depends(get_db)):
     _validate_uuid(user_id, "user_id")
 
     duel = duels.get(duel_id)
-
     if not duel:
         raise HTTPException(status_code=404, detail="Duel not found")
 
@@ -217,10 +202,7 @@ def submit_solution(duel_id: str, user_id: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail="Duel is finished")
 
     if duel["status"] != "active":
-        raise HTTPException(
-            status_code=400,
-            detail=f"Duel is {duel['status']}, submissions not allowed",
-        )
+        raise HTTPException(status_code=400, detail=f"Duel is {duel['status']}, submissions not allowed")
 
     user = crud.get_user_by_id(db, user_id)
     if not user:
@@ -239,21 +221,11 @@ def submit_solution(duel_id: str, user_id: str, db: Session = Depends(get_db)):
     now = time.time()
     last_time = duel["last_submission_time"].get(user_id)
     if last_time and now - last_time < 5:
-        raise HTTPException(
-            status_code=429,
-            detail="Too many submissions. Please wait 5 seconds.",
-        )
+        raise HTTPException(status_code=429, detail="Too many submissions. Please wait 5 seconds.")
 
-    result_data = CodeforcesService.check_problem_solved(
-        user.cf_handle,
-        problem_id,
-    )
-
+    result_data = CodeforcesService.check_problem_solved(user.cf_handle, problem_id)
     if result_data is None:
-        raise HTTPException(
-            status_code=503,
-            detail="Codeforces API unavailable, please retry",
-        )
+        raise HTTPException(status_code=503, detail="Codeforces API unavailable, please retry")
 
     verdict = result_data.get("verdict", "UNKNOWN")
     success = result_data.get("solved", False)

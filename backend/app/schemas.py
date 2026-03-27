@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import List, Optional
 
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class CFProblem(BaseModel):
@@ -28,7 +28,18 @@ class UserCreate(BaseModel):
     username: str
     email: str
     password: str
-    cf_handle: str | None = None
+    cf_handle: Optional[str] = None
+
+
+class UserLogin(BaseModel):
+    username: Optional[str] = None
+    email: Optional[str] = None
+    password: str
+
+
+class TokenResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
 
 
 class UserOut(BaseModel):
@@ -43,16 +54,6 @@ class UserOut(BaseModel):
     created_at: Optional[datetime] = None
 
     model_config = ConfigDict(from_attributes=True)
-
-
-class UserLogin(BaseModel):
-    username: str
-    password: str
-
-
-class TokenResponse(BaseModel):
-    access_token: str
-    token_type: str = "bearer"
 
 
 class UserMe(BaseModel):

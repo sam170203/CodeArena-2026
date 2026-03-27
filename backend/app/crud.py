@@ -6,10 +6,6 @@ from sqlalchemy.orm import Session
 from app import models, schemas
 
 
-# -------------------------
-# Users
-# -------------------------
-
 def get_user_by_username(db: Session, username: str) -> Optional[models.User]:
     return db.query(models.User).filter(models.User.username == username).first()
 
@@ -34,14 +30,10 @@ def update_user_cf_handle(db: Session, user_id: str, cf_handle: str) -> Optional
     return user
 
 
-# -------------------------
-# Submissions
-# -------------------------
-
 def create_submission(
     db: Session,
     submission_in: schemas.SubmissionCreate,
-    user_id: str
+    user_id: str,
 ) -> models.Submission:
     sub = models.Submission(
         user_id=user_id,
@@ -60,15 +52,11 @@ def create_submission(
     return sub
 
 
-# -------------------------
-# Duels
-# -------------------------
-
 def create_duel(
     db: Session,
     initiator_id: str,
     problem_id: str,
-    opponent_id: Optional[str] = None
+    opponent_id: Optional[str] = None,
 ) -> models.Duel:
     duel = models.Duel(
         initiator_id=initiator_id,
@@ -84,16 +72,12 @@ def create_duel(
     return duel
 
 
-# -------------------------
-# Rooms
-# -------------------------
-
 def create_room(
     db: Session,
     host_id: str,
     title: str,
     problem_id: Optional[str],
-    max_participants: int
+    max_participants: int,
 ) -> models.Room:
     room = models.Room(
         host_id=host_id,
@@ -107,16 +91,12 @@ def create_room(
     return room
 
 
-# -------------------------
-# Chat Messages
-# -------------------------
-
 def create_chat_message(
     db: Session,
     room_id: Optional[str],
     duel_id: Optional[str],
     user_id: str,
-    message: str
+    message: str,
 ) -> models.ChatMessage:
     msg = models.ChatMessage(
         room_id=room_id,

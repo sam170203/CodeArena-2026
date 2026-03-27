@@ -5,6 +5,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.db import get_db
@@ -48,31 +49,56 @@ def verify_token(token: str) -> Optional[str]:
     return None
 
 
+def _get_current_user(
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+    db: Session = Depends(get_db),
+) -> User:
+    user_id = verify_token(credentials.credentials)
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Invalid token")
+
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    return user
+
+
 @router.post("/register", response_model=UserOut)
 def register(user_in: UserCreate, db: Session = Depends(get_db)):
-    existing = db.query(User).filter(User.username == user_in.username).first()
-    if existing:
-        raise HTTPException(status_code=400, detail="Username already taken")
+    existing_username = db.query(User).filter(User.username == user_in.username).first()
+    existing_email = db.query(User).filter(User.email == user_in.email).first() if user_in.email else None
 
-    hashed_pw = hash_password(user_in.password)
+    if existing_username:
+        raise HTTPException(status_code=400, detail="Username already taken")
+    if existing_email:
+        raise HTTPException(status_code=400, detail="Email already registered")
 
     new_user = User(
         username=user_in.username,
         email=user_in.email,
-        hashed_password=hashed_pw,
+        hashed_password=hash_password(user_in.password),
         cf_handle=user_in.cf_handle,
     )
 
     db.add(new_user)
     db.commit()
     db.refresh(new_user)
-
     return new_user
 
 
 @router.post("/login", response_model=TokenResponse)
 def login(user_in: UserLogin, db: Session = Depends(get_db)):
-    user = db.query(User).filter(User.username == user_in.username).first()
+    identifier = (user_in.email or user_in.username or "").strip()
+    if not identifier:
+        raise HTTPException(status_code=422, detail="Email or username is required")
+
+    user = (
+        db.query(User)
+        .filter(or_(User.username == identifier, User.email == identifier))
+        .first()
+    )
+
     if not user or not user.hashed_password:
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
@@ -84,41 +110,41 @@ def login(user_in: UserLogin, db: Session = Depends(get_db)):
 
 
 @router.get("/me", response_model=UserMe)
-def get_me(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
-    db: Session = Depends(get_db),
-):
-    token = credentials.credentials
-    user_id = verify_token(token)
+def get_me(current_user: User = Depends(_get_current_user)):
+    return current_user
 
-    if not user_id:
-        raise HTTPException(status_code=401, detail="Invalid token")
 
-    user = db.query(User).filter(User.id == user_id).first()
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
+from pydantic import BaseModel
 
-    return user
+class CFHandleUpdate(BaseModel):
+    cf_handle: str
 
 
 @router.put("/cf-handle")
-def update_cf_handle(user_id: str, cf_handle: str, db: Session = Depends(get_db)):
-    user = db.query(User).filter(User.id == user_id).first()
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
+def update_cf_handle(
+    payload: CFHandleUpdate,
+    current_user: User = Depends(_get_current_user),
+    db: Session = Depends(get_db),
+):
+    cf_handle = payload.cf_handle.strip()
+    if not cf_handle:
+        raise HTTPException(status_code=400, detail="CF handle cannot be empty")
 
-    user.cf_handle = cf_handle
+    current_user.cf_handle = cf_handle
     db.commit()
+    db.refresh(current_user)
 
     return {"message": "CF handle updated successfully", "cf_handle": cf_handle}
 
 
 @router.post("/sync-cf")
-def sync_cf(handle: str, user_id: str, db: Session = Depends(get_db)):
-    user = db.query(User).filter(User.id == user_id).first()
-
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
+def sync_cf(
+    current_user: User = Depends(_get_current_user),
+    db: Session = Depends(get_db),
+):
+    handle = current_user.cf_handle
+    if not handle:
+        raise HTTPException(status_code=400, detail="Set your Codeforces handle first")
 
     try:
         info = get_user_info(handle)
@@ -126,19 +152,18 @@ def sync_cf(handle: str, user_id: str, db: Session = Depends(get_db)):
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid Codeforces handle")
 
-    user.cf_handle = handle
-    user.cf_rating = info.get("rating", 0)
-    user.cf_rank = info.get("rank", "unrated")
-    user.solved_count = len(solved_list)
+    current_user.cf_rating = info.get("rating", 0)
+    current_user.cf_rank = info.get("rank", "unrated")
+    current_user.solved_count = len(solved_list)
 
     db.query(SolvedProblem).filter(
-        SolvedProblem.user_id == user_id
+        SolvedProblem.user_id == current_user.id
     ).delete(synchronize_session=False)
 
     for contest_id, index, name, rating in solved_list:
         db.add(
             SolvedProblem(
-                user_id=user_id,
+                user_id=current_user.id,
                 contest_id=contest_id,
                 problem_index=index,
                 problem_name=name,
@@ -147,10 +172,11 @@ def sync_cf(handle: str, user_id: str, db: Session = Depends(get_db)):
         )
 
     db.commit()
+    db.refresh(current_user)
 
     return {
         "handle": handle,
-        "rating": user.cf_rating,
-        "rank": user.cf_rank,
-        "solved_count": user.solved_count,
+        "rating": current_user.cf_rating,
+        "rank": current_user.cf_rank,
+        "solved_count": current_user.solved_count,
     }
