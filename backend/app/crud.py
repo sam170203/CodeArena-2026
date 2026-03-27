@@ -57,11 +57,19 @@ def create_duel(
     initiator_id: str,
     problem_id: str,
     opponent_id: Optional[str] = None,
+    max_participants: int = 5,
+    rating_target: int = 1200,
+    problem_name: Optional[str] = None,
+    problem_rating: Optional[int] = None,
 ) -> models.Duel:
     duel = models.Duel(
-        initiator_id=initiator_id,
-        opponent_id=opponent_id,
+        host_id=initiator_id,
         problem_id=problem_id,
+        problem_name=problem_name,
+        problem_rating=problem_rating,
+        opponent_id=opponent_id,  # ignored if column not present; safe to keep if you later add it
+        max_participants=max_participants,
+        rating_target=rating_target,
         status="waiting",
         started_at=None,
         finished_at=None,

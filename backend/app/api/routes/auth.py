@@ -1,5 +1,9 @@
+import base64
 import hashlib
-import secrets
+import hmac
+import json
+import os
+import time
 from datetime import datetime, timedelta
 from typing import Optional
 
@@ -7,6 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
+from pydantic import BaseModel
 
 from app.db import get_db
 from app.schemas import UserCreate, UserLogin, TokenResponse, UserMe, UserOut
@@ -17,7 +22,11 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 security = HTTPBearer()
 
 TOKEN_EXPIRE_HOURS = 24
-_token_store: dict[str, tuple[str, datetime]] = {}
+SECRET_KEY = os.getenv("SECRET_KEY", "codearena-dev-secret")
+
+
+class CFHandleUpdate(BaseModel):
+    cf_handle: str
 
 
 def hash_password(password: str) -> str:
@@ -28,25 +37,40 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
     return hash_password(plain_password) == hashed_password
 
 
+def _sign(value: str) -> str:
+    return hmac.new(SECRET_KEY.encode("utf-8"), value.encode("utf-8"), hashlib.sha256).hexdigest()
+
+
 def create_token(user_id: str, username: str) -> str:
-    data = f"{user_id}:{username}:{secrets.token_hex(16)}"
-    token = hashlib.sha256(data.encode("utf-8")).hexdigest()
-    expires = datetime.utcnow() + timedelta(hours=TOKEN_EXPIRE_HOURS)
-    _token_store[token] = (user_id, expires)
-    return token
+    payload = {
+        "sub": user_id,
+        "username": username,
+        "exp": int(time.time()) + (TOKEN_EXPIRE_HOURS * 3600),
+    }
+    body = base64.urlsafe_b64encode(
+        json.dumps(payload, separators=(",", ":")).encode("utf-8")
+    ).decode("utf-8").rstrip("=")
+    sig = _sign(body)
+    return f"{body}.{sig}"
 
 
 def verify_token(token: str) -> Optional[str]:
-    token_data = _token_store.get(token)
-    if not token_data:
+    try:
+        body, sig = token.split(".", 1)
+        expected_sig = _sign(body)
+        if not hmac.compare_digest(sig, expected_sig):
+            return None
+
+        padding = "=" * (-len(body) % 4)
+        payload_json = base64.urlsafe_b64decode((body + padding).encode("utf-8")).decode("utf-8")
+        payload = json.loads(payload_json)
+
+        if int(payload.get("exp", 0)) < int(time.time()):
+            return None
+
+        return payload.get("sub")
+    except Exception:
         return None
-
-    user_id, expires = token_data
-    if expires > datetime.utcnow():
-        return user_id
-
-    _token_store.pop(token, None)
-    return None
 
 
 def _get_current_user(
@@ -114,12 +138,6 @@ def get_me(current_user: User = Depends(_get_current_user)):
     return current_user
 
 
-from pydantic import BaseModel
-
-class CFHandleUpdate(BaseModel):
-    cf_handle: str
-
-
 @router.put("/cf-handle")
 def update_cf_handle(
     payload: CFHandleUpdate,
@@ -131,6 +149,7 @@ def update_cf_handle(
         raise HTTPException(status_code=400, detail="CF handle cannot be empty")
 
     current_user.cf_handle = cf_handle
+    current_user.updated_at = datetime.utcnow()
     db.commit()
     db.refresh(current_user)
 
@@ -155,10 +174,9 @@ def sync_cf(
     current_user.cf_rating = info.get("rating", 0)
     current_user.cf_rank = info.get("rank", "unrated")
     current_user.solved_count = len(solved_list)
+    current_user.updated_at = datetime.utcnow()
 
-    db.query(SolvedProblem).filter(
-        SolvedProblem.user_id == current_user.id
-    ).delete(synchronize_session=False)
+    db.query(SolvedProblem).filter(SolvedProblem.user_id == current_user.id).delete(synchronize_session=False)
 
     for contest_id, index, name, rating in solved_list:
         db.add(

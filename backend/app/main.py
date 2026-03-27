@@ -6,8 +6,9 @@ from fastapi import Depends, FastAPI, HTTPException, WebSocket, WebSocketDisconn
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 
-from . import crud, models, schemas
+from . import crud, schemas
 from .db import Base, engine, get_db
+from .models import Duel, DuelParticipant, User
 from .schemas import CFProblemsResponse
 from .services.codeforces import CodeforcesService
 from .api.routes.auth import router as auth_router
@@ -18,12 +19,14 @@ Base.metadata.create_all(bind=engine)
 
 app = FastAPI()
 
+allowed_origins = os.getenv(
+    "CORS_ORIGINS",
+    "http://localhost:3000,http://127.0.0.1:3000",
+).split(",")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-    ],
+    allow_origins=[origin.strip() for origin in allowed_origins if origin.strip()],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -49,6 +52,52 @@ def _normalize_problem(problem):
         "tags": problem.get("tags") or [],
         "time_limit": problem.get("timeLimit", problem.get("time_limit")),
         "memory_limit": problem.get("memoryLimit", problem.get("memory_limit")),
+        "problem_id": problem.get("problem_id")
+        or (
+            f"{problem.get('contestId', problem.get('contest_id'))}-{problem.get('index')}"
+            if problem.get("index") is not None
+            else None
+        ),
+    }
+
+
+def _serialize_duel_state(db: Session, duel_id: str):
+    duel = db.query(Duel).filter(Duel.id == duel_id).first()
+    if not duel:
+        return {"exists": False}
+
+    participant_rows = (
+        db.query(DuelParticipant)
+        .filter(DuelParticipant.duel_id == duel.id)
+        .order_by(DuelParticipant.joined_at.asc())
+        .all()
+    )
+
+    participants = []
+    for row in participant_rows:
+        user = db.query(User).filter(User.id == row.user_id).first()
+        participants.append({
+            "user_id": row.user_id,
+            "username": user.username if user else row.user_id,
+            "cf_rating": row.current_rating or (user.cf_rating if user else 0),
+            "joined_at": row.joined_at.isoformat() if row.joined_at else None,
+        })
+
+    return {
+        "exists": True,
+        "id": duel.id,
+        "host_id": duel.host_id,
+        "status": duel.status,
+        "problem_id": duel.problem_id,
+        "problem_name": duel.problem_name,
+        "problem_rating": duel.problem_rating,
+        "rating_target": duel.rating_target,
+        "max_participants": duel.max_participants,
+        "participants_count": len(participants),
+        "participants": participants,
+        "winner_id": duel.winner_id,
+        "started_at": duel.started_at.isoformat() if duel.started_at else None,
+        "finished_at": duel.finished_at.isoformat() if duel.finished_at else None,
     }
 
 
@@ -106,9 +155,10 @@ async def duel_ws(websocket: WebSocket, duel_id: str):
     clients = duel_subs.setdefault(duel_id, set())
     clients.add(websocket)
 
-    await websocket.send_json({"type": "connected", "duel_id": duel_id})
-
+    db = next(get_db())
     try:
+        await websocket.send_json({"type": "connected", "duel_id": duel_id, "state": _serialize_duel_state(db, duel_id)})
+
         while True:
             msg = await websocket.receive_text()
             try:
@@ -120,9 +170,10 @@ async def duel_ws(websocket: WebSocket, duel_id: str):
 
             if etype == "JOIN_ROOM":
                 await broadcast_duel(duel_id, {"type": "join_room", "payload": payload})
+                await broadcast_duel(duel_id, {"type": "state", "payload": _serialize_duel_state(db, duel_id)})
             elif etype == "START_DUEL":
-                duel_states[duel_id] = {"status": "started", "started_at": time.time()}
-                await broadcast_duel(duel_id, {"type": "start_duel", "payload": duel_states[duel_id]})
+                await broadcast_duel(duel_id, {"type": "start_duel", "payload": payload})
+                await broadcast_duel(duel_id, {"type": "state", "payload": _serialize_duel_state(db, duel_id)})
             elif etype == "SUBMIT_SOLUTION":
                 await broadcast_duel(duel_id, {"type": "submission", "payload": payload})
             elif etype == "SCORE_UPDATE":
@@ -130,8 +181,8 @@ async def duel_ws(websocket: WebSocket, duel_id: str):
             elif etype == "CHAT_MESSAGE":
                 await broadcast_duel(duel_id, {"type": "chat_message", "payload": payload})
             elif etype == "END_DUEL":
-                duel_states[duel_id] = {"status": "finished", "finished_at": time.time()}
-                await broadcast_duel(duel_id, {"type": "end_duel", "payload": duel_states[duel_id]})
+                await broadcast_duel(duel_id, {"type": "end_duel", "payload": payload})
+                await broadcast_duel(duel_id, {"type": "state", "payload": _serialize_duel_state(db, duel_id)})
             else:
                 await websocket.send_json({"type": "echo", "payload": payload})
     except WebSocketDisconnect:
@@ -140,6 +191,7 @@ async def duel_ws(websocket: WebSocket, duel_id: str):
         clients.discard(websocket)
         if not clients:
             duel_subs.pop(duel_id, None)
+        db.close()
 
 
 async def broadcast_duel(duel_id: str, message: dict):

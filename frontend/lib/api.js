@@ -7,7 +7,6 @@ const api = axios.create({
   },
 });
 
-// 🔐 Attach JWT token automatically
 api.interceptors.request.use((config) => {
   if (typeof window !== "undefined") {
     const token = localStorage.getItem("token");
@@ -19,70 +18,47 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
-/* =========================
-   AUTH APIs
-========================= */
 export const auth = {
   register: (payload) => api.post("/auth/register", payload),
   login: (payload) => api.post("/auth/login", payload),
   me: () => api.get("/auth/me"),
-
-  // ✅ FIXED: send as BODY (not query param)
   updateCfHandle: (cfHandle) =>
     api.put("/auth/cf-handle", { cf_handle: cfHandle }),
-
-  // ✅ FIXED: backend should use token → no handle needed
   syncCf: () => api.post("/auth/sync-cf"),
 };
 
-/* =========================
-   PRACTICE APIs
-========================= */
 export const practice = {
-  div2: () => api.get("/practice/div2"),
-  div3: () => api.get("/practice/div3"),
-
-  generate: ({ rating = 1200, count = 5, tags = [] } = {}) =>
+  div2: (userId) =>
+    api.get("/practice/div2", {
+      params: userId ? { user_id: userId } : {},
+    }),
+  div3: (userId) =>
+    api.get("/practice/div3", {
+      params: userId ? { user_id: userId } : {},
+    }),
+  generate: ({ rating = 1200, count = 60, tags = [], userId = null } = {}) =>
     api.get("/practice/generate", {
       params: {
         rating,
         count,
         tags: Array.isArray(tags) ? tags.join(",") : tags,
+        ...(userId ? { user_id: userId } : {}),
       },
     }),
-
   user: (userId) => api.get(`/practice/user/${userId}`),
 };
 
-/* =========================
-   DUEL APIs
-========================= */
 export const duel = {
   create: (payload) => api.post("/duel/create", payload),
   join: (payload) => api.post("/duel/join", payload),
-
-  // ⚠️ keep params (backend expects query)
-  start: (duelId, userId) =>
-    api.post("/duel/start", null, {
-      params: { duel_id: duelId, user_id: userId },
-    }),
-
+  start: (payload) => api.post("/duel/start", payload),
   get: (duelId) => api.get(`/duel/${duelId}`),
-
+  findByHost: (hostId) => api.get(`/duel/host/${hostId}`),
   getProblem: (duelId, userId) =>
-    api.get(`/duel/${duelId}/problem`, {
-      params: { user_id: userId },
-    }),
-
-  submit: (duelId, userId) =>
-    api.post("/duel/submit", null, {
-      params: { duel_id: duelId, user_id: userId },
-    }),
+    api.get(`/duel/${duelId}/problem`, { params: { user_id: userId } }),
+  submit: (payload) => api.post("/duel/submit", payload),
 };
 
-/* =========================
-   SUBMISSIONS APIs
-========================= */
 export const submissions = {
   submit: (payload) => api.post("/submissions/submit", payload),
 };

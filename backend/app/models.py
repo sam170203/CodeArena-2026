@@ -1,10 +1,16 @@
-# backend/app/models.py
-"""SQLAlchemy ORM models for CodeArena."""
-
 from datetime import datetime
 import uuid
 
-from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import (
+    Boolean,
+    Column,
+    DateTime,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import relationship
 
 from .db import Base
@@ -21,6 +27,7 @@ class User(Base):
     username = Column(String(50), unique=True, nullable=False, index=True)
     email = Column(String(120), unique=True, nullable=True)
     hashed_password = Column(String(255), nullable=True)
+
     xp = Column(Integer, default=0)
     cf_handle = Column(String(100), nullable=True, index=True)
     cf_rating = Column(Integer, default=0)
@@ -29,28 +36,56 @@ class User(Base):
 
     duel_wins = Column(Integer, default=0)
     duel_losses = Column(Integer, default=0)
+
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     submissions = relationship("Submission", back_populates="user", cascade="all, delete-orphan")
     rooms = relationship("Room", back_populates="host")
     chat_messages = relationship("ChatMessage", back_populates="user")
+    practice_items = relationship("PracticeSheetItem", back_populates="user", cascade="all, delete-orphan")
+    duel_participations = relationship("DuelParticipant", back_populates="user", cascade="all, delete-orphan")
 
 
 class Duel(Base):
     __tablename__ = "duels"
 
     id = Column(String(36), primary_key=True, default=generate_uuid)
-    initiator_id = Column(String(36), ForeignKey("users.id"), nullable=False)
-    opponent_id = Column(String(36), ForeignKey("users.id"), nullable=True)
-    problem_id = Column(String(128), nullable=False)
-    status = Column(String(32), default="waiting")
-    started_at = Column(DateTime, nullable=True)
-    finished_at = Column(DateTime, nullable=True)
+    host_id = Column(String(36), ForeignKey("users.id"), nullable=False, index=True)
+    max_participants = Column(Integer, default=5, nullable=False)
+    rating_target = Column(Integer, default=1200, nullable=False)
+
+    problem_id = Column(String(128), nullable=True)
+    problem_name = Column(String(255), nullable=True)
+    problem_rating = Column(Integer, nullable=True)
+
+    status = Column(String(32), default="waiting", nullable=False)  # waiting, active, finished
     winner_id = Column(String(36), ForeignKey("users.id"), nullable=True)
 
+    started_at = Column(DateTime, nullable=True)
+    finished_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    participants = relationship("DuelParticipant", back_populates="duel", cascade="all, delete-orphan")
     submissions = relationship("Submission", back_populates="duel")
     chat_messages = relationship("ChatMessage", back_populates="duel")
+
+
+class DuelParticipant(Base):
+    __tablename__ = "duel_participants"
+    __table_args__ = (
+        UniqueConstraint("duel_id", "user_id", name="uq_duel_participant_duel_user"),
+    )
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    duel_id = Column(String(36), ForeignKey("duels.id"), nullable=False, index=True)
+    user_id = Column(String(36), ForeignKey("users.id"), nullable=False, index=True)
+    current_rating = Column(Integer, default=0, nullable=False)
+    joined_at = Column(DateTime, default=datetime.utcnow)
+
+    user = relationship("User", back_populates="duel_participations")
+    duel = relationship("Duel", back_populates="participants")
 
 
 class Submission(Base):
@@ -133,3 +168,28 @@ class SolvedProblem(Base):
     problem_index = Column(String)
     problem_name = Column(String)
     rating = Column(Integer)
+    solved_at = Column(DateTime, default=datetime.utcnow)
+
+
+class PracticeSheetItem(Base):
+    __tablename__ = "practice_sheet_items"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    user_id = Column(String(36), ForeignKey("users.id"), index=True, nullable=False)
+    sheet_type = Column(String(32), index=True, nullable=False)  # div2, div3, personal, custom
+    query_signature = Column(String(255), index=True, nullable=False)
+
+    problem_id = Column(String(128), index=True, nullable=False)
+    contest_id = Column(Integer, index=True, nullable=True)
+    problem_index = Column(String(16), nullable=True)
+    problem_name = Column(String(255), nullable=False)
+    rating = Column(Integer, nullable=True)
+    tags_json = Column(Text, nullable=True)
+
+    status = Column(String(32), default="new", nullable=False)  # new, seen, solved, archived
+    is_active = Column(Boolean, default=True, nullable=False)
+
+    first_seen_at = Column(DateTime, default=datetime.utcnow)
+    last_seen_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    user = relationship("User", back_populates="practice_items")

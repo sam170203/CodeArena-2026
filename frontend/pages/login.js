@@ -1,84 +1,89 @@
-import { useState } from 'react';
-import { useRouter } from 'next/router';
-import { auth } from '../lib/api';
-import useAuthStore from '../store/authStore';
+import { useState } from "react";
+import { useRouter } from "next/router";
+import useAuthStore from "../store/authStore";
+import { auth } from "../lib/api";
+
+function formatApiError(err) {
+  const detail = err?.response?.data?.detail;
+
+  if (typeof detail === "string") return detail;
+
+  if (Array.isArray(detail)) {
+    return detail
+      .map((item) => (typeof item?.msg === "string" ? item.msg : JSON.stringify(item)))
+      .join(", ");
+  }
+
+  if (detail && typeof detail === "object") {
+    return detail.msg || JSON.stringify(detail);
+  }
+
+  return err?.message || "Login failed";
+}
 
 export default function LoginPage() {
   const router = useRouter();
   const setToken = useAuthStore((s) => s.setToken);
+  const fetchMe = useAuthStore((s) => s.fetchMe);
 
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+  const [identifier, setIdentifier] = useState("");
+  const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
+  const [error, setError] = useState("");
 
   const handleLogin = async () => {
     setLoading(true);
-    setError('');
+    setError("");
 
     try {
-      const res = await auth.login({ email, password });
+      const res = await auth.login({
+        email: identifier,
+        username: identifier,
+        password,
+      });
 
       const token = res.data?.access_token;
       if (!token) throw new Error("No token received");
 
       setToken(token);
-
-      router.push('/practice'); // redirect after login
+      await fetchMe();
+      router.push("/practice");
     } catch (err) {
       console.error(err);
-      setError(err.response?.data?.detail || 'Login failed');
+      setError(formatApiError(err));
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div style={{
-      minHeight: '100vh',
-      display: 'flex',
-      justifyContent: 'center',
-      alignItems: 'center',
-      background: '#020617',
-      color: 'white'
-    }}>
-      <div style={{
-        padding: '24px',
-        background: '#1e293b',
-        borderRadius: '12px',
-        width: '300px'
-      }}>
-        <h2 style={{ marginBottom: '16px' }}>Login</h2>
+    <div style={{ maxWidth: 420, margin: "60px auto", padding: 20 }}>
+      <h1 style={{ marginBottom: 20 }}>Login</h1>
 
-        <input
-          placeholder="Email"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          style={{ width: '100%', marginBottom: '10px' }}
-        />
+      <input
+        value={identifier}
+        onChange={(e) => setIdentifier(e.target.value)}
+        placeholder="Email or Username"
+        style={{ width: "100%", marginBottom: 10, padding: 10 }}
+      />
 
-        <input
-          type="password"
-          placeholder="Password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          style={{ width: '100%', marginBottom: '10px' }}
-        />
+      <input
+        type="password"
+        value={password}
+        onChange={(e) => setPassword(e.target.value)}
+        placeholder="Password"
+        style={{ width: "100%", marginBottom: 10, padding: 10 }}
+      />
 
-        <button
-          onClick={handleLogin}
-          disabled={loading}
-          style={{ width: '100%' }}
-        >
-          {loading ? 'Logging in...' : 'Login'}
-        </button>
+      <button
+        onClick={handleLogin}
+        disabled={loading}
+        style={{ width: "100%", padding: 10 }}
+      >
+        {loading ? "Logging in..." : "Login"}
+      </button>
 
-        {error && (
-          <p style={{ color: 'red', marginTop: '10px' }}>
-            {error}
-          </p>
-        )}
-      </div>
+      {error && <p style={{ color: "tomato", marginTop: 12 }}>{error}</p>}
     </div>
   );
 }

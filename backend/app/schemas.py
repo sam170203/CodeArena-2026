@@ -13,11 +13,22 @@ class CFProblem(BaseModel):
     time_limit: Optional[int] = None
     memory_limit: Optional[int] = None
 
+    problem_id: Optional[str] = None
+    status: Optional[str] = None
+    is_active: Optional[bool] = None
+    first_seen_at: Optional[datetime] = None
+    last_seen_at: Optional[datetime] = None
+
     model_config = ConfigDict(from_attributes=True)
 
 
 class PracticeResponse(BaseModel):
     problems: List[CFProblem]
+    sheet_type: Optional[str] = None
+    sheet_key: Optional[str] = None
+    target_rating: Optional[int] = None
+    tags: List[str] = Field(default_factory=list)
+    refreshed_at: Optional[datetime] = None
 
 
 class CFProblemsResponse(BaseModel):
@@ -28,7 +39,7 @@ class UserCreate(BaseModel):
     username: str
     email: str
     password: str
-    cf_handle: Optional[str] = None
+    cf_handle: str | None = None
 
 
 class UserLogin(BaseModel):
@@ -98,6 +109,7 @@ class SubmissionOut(BaseModel):
 class DuelCreate(BaseModel):
     host_id: str
     rating: Optional[int] = 1200
+    max_participants: int = Field(default=5, ge=2, le=5)
 
 
 class DuelCreateResponse(BaseModel):
@@ -106,11 +118,19 @@ class DuelCreateResponse(BaseModel):
     problem_name: Optional[str] = None
     rating: Optional[int] = None
     status: str = "waiting"
+    participants_count: int = 1
+    max_participants: int = 5
+    rating_target: Optional[int] = None
 
 
 class DuelJoin(BaseModel):
     duel_id: str
     opponent_id: str
+
+
+class DuelStartRequest(BaseModel):
+    duel_id: str
+    user_id: str
 
 
 class DuelStartResponse(BaseModel):
@@ -119,6 +139,12 @@ class DuelStartResponse(BaseModel):
     problem_id: str
     problem_name: Optional[str] = None
     message: str
+    participants_count: int = 0
+
+
+class DuelSubmitRequest(BaseModel):
+    duel_id: str
+    user_id: str
 
 
 class DuelSubmitResult(BaseModel):
@@ -129,13 +155,26 @@ class DuelSubmitResult(BaseModel):
     winner_id: Optional[str] = None
 
 
+class DuelParticipantOut(BaseModel):
+    user_id: str
+    username: str
+    cf_rating: int = 0
+    joined_at: Optional[datetime] = None
+
+
 class DuelOut(BaseModel):
     id: str
-    initiator_id: str
+    host_id: str
     opponent_id: Optional[str] = None
-    problem_id: str
+    problem_id: Optional[str] = None
+    problem_name: Optional[str] = None
+    problem_rating: Optional[int] = None
     status: str
     winner_id: Optional[str] = None
+    rating_target: Optional[int] = None
+    max_participants: int = 5
+    participants_count: int = 0
+    participants: List[DuelParticipantOut] = Field(default_factory=list)
     started_at: Optional[datetime] = None
     finished_at: Optional[datetime] = None
 

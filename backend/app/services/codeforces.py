@@ -1,6 +1,5 @@
 import json
 import logging
-import random
 import time
 from typing import Any, Dict, List, Optional
 
@@ -17,6 +16,23 @@ except Exception:
     redis_client = None
 
 CF_API_BASE = "https://codeforces.com/api"
+
+
+def _normalize_tags(tags: Optional[List[str]]) -> List[str]:
+    if not tags:
+        return []
+    return [t.strip().lower() for t in tags if t and t.strip()]
+
+
+def _latest_sort_key(problem: Dict[str, Any]):
+    contest_id = problem.get("contestId", problem.get("contest_id")) or 0
+    try:
+        contest_id = int(contest_id)
+    except Exception:
+        contest_id = 0
+
+    index = str(problem.get("index") or "")
+    return (-contest_id, index)
 
 
 class CodeforcesService:
@@ -40,6 +56,7 @@ class CodeforcesService:
                 timeout=10,
                 headers={"User-Agent": "CodeArena/1.0"},
             )
+            response.raise_for_status()
             return response.json()
         except Exception as e:
             logger.error(f"CF API request failed: {e}")
@@ -76,9 +93,14 @@ class CodeforcesService:
 
     @staticmethod
     def _map_problem(p: Dict[str, Any]) -> Dict[str, Any]:
+        contest_id = p.get("contestId")
+        index = p.get("index")
+        problem_id = f"{contest_id}-{index}" if contest_id is not None and index else None
+
         return {
-            "contest_id": p.get("contestId"),
-            "index": p.get("index"),
+            "problem_id": problem_id,
+            "contest_id": contest_id,
+            "index": index,
             "name": p.get("name"),
             "rating": p.get("rating"),
             "tags": p.get("tags", []),
@@ -93,22 +115,26 @@ class CodeforcesService:
         tags: Optional[List[str]] = None,
     ) -> List[Dict[str, Any]]:
         problems = CodeforcesService.fetch_problemset()
+        normalized_tags = _normalize_tags(tags)
 
         filtered = [
             p for p in problems
-            if p.get("rating") and abs(p["rating"] - rating) <= 200
+            if p.get("rating") is not None
+            and abs(int(p["rating"]) - int(rating)) <= 200
         ]
 
-        if tags:
+        if normalized_tags:
             filtered = [
                 p for p in filtered
-                if any(t in p.get("tags", []) for t in tags)
+                if any(tag.lower() in [t.lower() for t in p.get("tags", [])] for tag in normalized_tags)
             ]
+
+        filtered.sort(key=_latest_sort_key)
 
         if not filtered:
             return []
 
-        selected = random.sample(filtered, min(count, len(filtered)))
+        selected = filtered[: min(count, len(filtered))]
         return [CodeforcesService._map_problem(p) for p in selected]
 
     @staticmethod
@@ -124,22 +150,22 @@ class CodeforcesService:
                 pass
 
         CodeforcesService._rate_guard()
-        data = CodeforcesService._safe_request(f"{CF_API_BASE}/user.rating", {"handle": handle})
+
+        data = CodeforcesService._safe_request(f"{CF_API_BASE}/user.info", {"handles": handle})
 
         if data is None or data.get("status") != "OK":
-            logger.warning(f"CF rating fetch failed for {handle}")
+            logger.warning(f"CF user.info fetch failed for {handle}")
             return None
 
-        contests = data.get("result", [])
-        if not contests:
+        users = data.get("result", [])
+        if not users:
             return None
 
-        latest = contests[-1]
+        user_info = users[0]
         result = {
             "handle": handle,
-            "current_rating": latest.get("newRating"),
-            "max_rating": max(c.get("newRating", 0) for c in contests),
-            "rank": latest.get("rank"),
+            "current_rating": user_info.get("rating", 0),
+            "rank": user_info.get("rank", "unrated"),
         }
 
         if redis_client:
@@ -163,6 +189,7 @@ class CodeforcesService:
                 pass
 
         CodeforcesService._rate_guard()
+
         data = CodeforcesService._safe_request(f"{CF_API_BASE}/user.status", {"handle": handle})
 
         if data is None or data.get("status") != "OK":
@@ -176,18 +203,18 @@ class CodeforcesService:
             problem = s.get("problem") or {}
             contest_id = problem.get("contestId")
             index = problem.get("index")
-            result.append(
-                {
-                    "id": s.get("id"),
-                    "problem_id": f"{contest_id}-{index}" if contest_id is not None and index else None,
-                    "contest_id": contest_id,
-                    "index": index,
-                    "verdict": s.get("verdict"),
-                    "time_ms": s.get("timeConsumedMillis"),
-                    "memory_kb": (s.get("memoryConsumedBytes") or 0) // 1024,
-                    "language": s.get("programmingLanguage"),
-                }
-            )
+            problem_id = f"{contest_id}-{index}" if contest_id is not None and index else None
+
+            result.append({
+                "id": s.get("id"),
+                "problem_id": problem_id,
+                "contest_id": contest_id,
+                "index": index,
+                "verdict": s.get("verdict"),
+                "time_ms": s.get("timeConsumedMillis"),
+                "memory_kb": (s.get("memoryConsumedBytes") or 0) // 1024,
+                "language": s.get("programmingLanguage"),
+            })
 
         if redis_client:
             try:
@@ -203,7 +230,6 @@ class CodeforcesService:
             pid = str(problem_id).strip()
             if pid.startswith("cf-"):
                 pid = pid[3:]
-
             contest_id_str, index = pid.split("-", 1)
             return int(contest_id_str), index
         except Exception:
@@ -216,14 +242,14 @@ class CodeforcesService:
         if contest_id is None or index is None:
             return {"solved": False, "submission_time": None, "verdict": "INVALID_PROBLEM_ID"}
 
-        wanted_plain = f"{contest_id}-{index}"
-        wanted_cf = f"cf-{contest_id}-{index}"
+        plain_id = f"{contest_id}-{index}"
+        cf_id = f"cf-{contest_id}-{index}"
 
         submissions = CodeforcesService.fetch_submission_status(handle, count=1000)
 
         for sub in submissions:
             pid = sub.get("problem_id")
-            if pid not in {wanted_plain, wanted_cf}:
+            if pid not in {plain_id, cf_id}:
                 continue
 
             verdict = sub.get("verdict", "")
@@ -259,6 +285,15 @@ def get_user_info(handle: str):
 
 def get_user_solved_problems(handle: str):
     submissions = CodeforcesService.fetch_submission_status(handle, count=1000)
+    problemset = CodeforcesService.fetch_problemset()
+
+    problem_map = {}
+    for p in problemset:
+        contest_id = p.get("contestId")
+        index = p.get("index")
+        if contest_id is None or index is None:
+            continue
+        problem_map[f"{contest_id}-{index}"] = p
 
     solved = set()
     solved_list = []
@@ -277,6 +312,13 @@ def get_user_solved_problems(handle: str):
             continue
 
         solved.add(key)
-        solved_list.append((contest_id, index, None, None))
+
+        raw = problem_map.get(f"{contest_id}-{index}", {})
+        solved_list.append((
+            contest_id,
+            index,
+            raw.get("name"),
+            raw.get("rating"),
+        ))
 
     return solved_list
