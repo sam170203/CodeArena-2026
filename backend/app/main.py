@@ -17,7 +17,15 @@ from .api.routes.duel import router as duel_router
 
 Base.metadata.create_all(bind=engine)
 
-app = FastAPI()
+app = FastAPI(
+    title="CodeArena API",
+    docs_url="/docs",       # 👈 IMPORTANT
+    redoc_url="/redoc"
+)
+@app.get("/")
+def root():
+    return {"message": "CodeArena backend is running 🚀"}
+
 
 allowed_origins = os.getenv(
     "CORS_ORIGINS",
