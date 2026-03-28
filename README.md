@@ -6,7 +6,7 @@ Minimal MVP for competitive coding duels with Codeforces integration.
 
 - **Backend**: FastAPI + SQLAlchemy + SQLite
 - **Frontend**: Next.js (placeholder)
-- **Cache**: Redis (optional)
+- **Cache**: Redis (optional
 
 ## Features
 
