@@ -1,6 +1,5 @@
 import json
 import os
-import time
 
 from fastapi import Depends, FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
@@ -15,21 +14,25 @@ from .api.routes.auth import router as auth_router
 from .api.routes.practice import router as practice_router
 from .api.routes.duel import router as duel_router
 
+# ================= DB INIT =================
 Base.metadata.create_all(bind=engine)
 
+# ================= APP INIT =================
 app = FastAPI(
     title="CodeArena API",
-    docs_url="/docs",       # 👈 IMPORTANT
+    docs_url="/docs",
     redoc_url="/redoc"
 )
-@app.get("/")
-def root():
-    return {"message": "CodeArena backend is running 🚀"}
 
-
+# ================= CORS FIX =================
 allowed_origins = os.getenv(
     "CORS_ORIGINS",
-    "http://localhost:3000,http://127.0.0.1:3000",
+    ",".join([
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "https://code-arena-ievp.vercel.app",
+        "https://code-arena-wine.vercel.app"
+    ])
 ).split(",")
 
 app.add_middleware(
@@ -40,14 +43,21 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# ================= ROUTES =================
 app.include_router(auth_router)
 app.include_router(practice_router)
 app.include_router(duel_router)
 
-duel_subs: dict[str, set] = {}
-duel_states: dict[str, dict] = {}
+# ================= BASIC ENDPOINTS =================
+@app.get("/")
+def root():
+    return {"status": "ok", "service": "CodeArena backend"}
 
+@app.get("/health")
+def health():
+    return {"status": "ok"}
 
+# ================= CODEFORCES =================
 def _normalize_problem(problem):
     if hasattr(problem, "model_dump"):
         problem = problem.model_dump()
@@ -68,6 +78,47 @@ def _normalize_problem(problem):
         ),
     }
 
+@app.get("/cf/problems", response_model=CFProblemsResponse)
+def cf_problems():
+    try:
+        problems = CodeforcesService.fetch_problemset()
+        mapped = [_normalize_problem(p) for p in problems[:50]]
+        return {"problems": mapped}
+    except Exception as e:
+        print(e)
+        return {"problems": []}
+
+# ================= SUBMISSIONS =================
+@app.post("/submissions/submit", response_model=schemas.SubmissionOut)
+async def submit(sub_in: schemas.SubmissionCreate, db: Session = Depends(get_db)):
+    user = crud.get_user_by_id(db, sub_in.user_id)
+    if user is None:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    sub = crud.create_submission(db, sub_in, user_id=sub_in.user_id)
+
+    try:
+        import redis
+
+        redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+        r = redis.Redis.from_url(redis_url)
+
+        payload = {
+            "submission_id": sub.id,
+            "user_id": sub_in.user_id,
+            "problem_id": sub_in.problem_id,
+            "language": sub_in.language,
+        }
+
+        r.publish("submission_queue", json.dumps(payload))
+
+    except Exception as e:
+        print(f"Redis publish failed: {e}")
+
+    return sub
+
+# ================= DUEL STATE =================
+duel_subs: dict[str, set] = {}
 
 def _serialize_duel_state(db: Session, duel_id: str):
     duel = db.query(Duel).filter(Duel.id == duel_id).first()
@@ -108,54 +159,7 @@ def _serialize_duel_state(db: Session, duel_id: str):
         "finished_at": duel.finished_at.isoformat() if duel.finished_at else None,
     }
 
-
-@app.get("/")
-def root():
-    return {"status": "ok", "service": "CodeArena backend"}
-
-
-@app.get("/health")
-def health():
-    return {"status": "ok"}
-
-
-@app.get("/cf/problems", response_model=CFProblemsResponse)
-def cf_problems():
-    try:
-        problems = CodeforcesService.fetch_problemset()
-        mapped = [_normalize_problem(p) for p in problems[:50]]
-        return {"problems": mapped}
-    except Exception as e:
-        print(e)
-        return {"problems": []}
-
-
-@app.post("/submissions/submit", response_model=schemas.SubmissionOut)
-async def submit(sub_in: schemas.SubmissionCreate, db: Session = Depends(get_db)):
-    user = crud.get_user_by_id(db, sub_in.user_id)
-    if user is None:
-        raise HTTPException(status_code=404, detail="User not found")
-
-    sub = crud.create_submission(db, sub_in, user_id=sub_in.user_id)
-
-    try:
-        import redis
-
-        redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
-        r = redis.Redis.from_url(redis_url)
-        payload = {
-            "submission_id": sub.id,
-            "user_id": sub_in.user_id,
-            "problem_id": sub_in.problem_id,
-            "language": sub_in.language,
-        }
-        r.publish("submission_queue", json.dumps(payload))
-    except Exception as e:
-        print(f"Redis publish failed: {e} (phase1C)")
-
-    return sub
-
-
+# ================= WEBSOCKET =================
 @app.websocket("/ws/duel/{duel_id}")
 async def duel_ws(websocket: WebSocket, duel_id: str):
     await websocket.accept()
@@ -164,8 +168,13 @@ async def duel_ws(websocket: WebSocket, duel_id: str):
     clients.add(websocket)
 
     db = next(get_db())
+
     try:
-        await websocket.send_json({"type": "connected", "duel_id": duel_id, "state": _serialize_duel_state(db, duel_id)})
+        await websocket.send_json({
+            "type": "connected",
+            "duel_id": duel_id,
+            "state": _serialize_duel_state(db, duel_id)
+        })
 
         while True:
             msg = await websocket.receive_text()
@@ -176,31 +185,24 @@ async def duel_ws(websocket: WebSocket, duel_id: str):
 
             etype = payload.get("type", "unknown")
 
-            if etype == "JOIN_ROOM":
-                await broadcast_duel(duel_id, {"type": "join_room", "payload": payload})
+            if etype in ["JOIN_ROOM", "START_DUEL", "END_DUEL"]:
+                await broadcast_duel(duel_id, {"type": etype.lower(), "payload": payload})
                 await broadcast_duel(duel_id, {"type": "state", "payload": _serialize_duel_state(db, duel_id)})
-            elif etype == "START_DUEL":
-                await broadcast_duel(duel_id, {"type": "start_duel", "payload": payload})
-                await broadcast_duel(duel_id, {"type": "state", "payload": _serialize_duel_state(db, duel_id)})
-            elif etype == "SUBMIT_SOLUTION":
-                await broadcast_duel(duel_id, {"type": "submission", "payload": payload})
-            elif etype == "SCORE_UPDATE":
-                await broadcast_duel(duel_id, {"type": "score_update", "payload": payload})
-            elif etype == "CHAT_MESSAGE":
-                await broadcast_duel(duel_id, {"type": "chat_message", "payload": payload})
-            elif etype == "END_DUEL":
-                await broadcast_duel(duel_id, {"type": "end_duel", "payload": payload})
-                await broadcast_duel(duel_id, {"type": "state", "payload": _serialize_duel_state(db, duel_id)})
+
+            elif etype in ["SUBMIT_SOLUTION", "SCORE_UPDATE", "CHAT_MESSAGE"]:
+                await broadcast_duel(duel_id, {"type": etype.lower(), "payload": payload})
+
             else:
                 await websocket.send_json({"type": "echo", "payload": payload})
+
     except WebSocketDisconnect:
         pass
+
     finally:
         clients.discard(websocket)
         if not clients:
             duel_subs.pop(duel_id, None)
         db.close()
-
 
 async def broadcast_duel(duel_id: str, message: dict):
     clients = list(duel_subs.get(duel_id, set()))
