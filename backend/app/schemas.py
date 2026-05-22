@@ -37,9 +37,9 @@ class CFProblemsResponse(BaseModel):
 
 class UserCreate(BaseModel):
     username: str
-    email: str
+    email: Optional[str] = None
     password: str
-    cf_handle: str | None = None
+    cf_handle: Optional[str] = None
 
 
 class UserLogin(BaseModel):
@@ -214,3 +214,14 @@ class ChatMessageOut(BaseModel):
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+# === Phase 1 matchmaking ===
+
+class EnqueueRequest(BaseModel):
+    mode: str = "speedrun_ladder"
+    deck_tags: Optional[List[str]] = None
+
+
+class EnqueueResponse(BaseModel):
+    queue_id: str
+    eta_seconds: int
