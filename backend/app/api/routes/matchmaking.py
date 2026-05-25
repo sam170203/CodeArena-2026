@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import time
 import uuid
+from collections import deque
 from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -13,6 +15,22 @@ from app.schemas import EnqueueRequest, EnqueueResponse
 from app.api.routes.auth import _get_current_user
 
 router = APIRouter(prefix="/matchmaking", tags=["matchmaking"])
+
+# Per-user enqueue rate limiter: max 3 enqueues per 120s window.
+_enqueue_history: dict[str, deque] = {}
+_ENQUEUE_WINDOW_S = 120
+_ENQUEUE_MAX = 3
+
+
+def _check_rate_limit(user_id: str) -> bool:
+    now = time.time()
+    dq = _enqueue_history.setdefault(user_id, deque())
+    while dq and now - dq[0] > _ENQUEUE_WINDOW_S:
+        dq.popleft()
+    if len(dq) >= _ENQUEUE_MAX:
+        return False
+    dq.append(now)
+    return True
 
 
 @router.post("/enqueue", response_model=EnqueueResponse)
@@ -33,6 +51,12 @@ def enqueue(
     )
     if existing:
         return EnqueueResponse(queue_id=existing.id, eta_seconds=30)
+
+    if not _check_rate_limit(current_user.id):
+        raise HTTPException(
+            status_code=429,
+            detail="Too many queue enqueues. Take a breath, then try again.",
+        )
 
     entry = MatchmakingQueueEntry(
         id=str(uuid.uuid4()),

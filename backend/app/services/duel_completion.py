@@ -71,6 +71,23 @@ async def complete_duel(
     host_delta = elo_delta(host_before, opp_before, host_result)
     opp_delta = elo_delta(opp_before, host_before, opp_result)
 
+    # Smurf check: cap gain if CF rating is >500 above internal ELO AND
+    # opponent is much weaker. Prevents abuse via fresh CodeArena account.
+    SMURF_CF_GAP = 500
+    SMURF_ELO_GAP = 300
+    SMURF_CAP = 5
+
+    def _maybe_cap(my_user, my_before: int, opp_before_local: int, delta: int) -> int:
+        if delta <= 0:
+            return delta
+        cf_rating = my_user.cf_rating or 0
+        if cf_rating - my_before >= SMURF_CF_GAP and my_before - opp_before_local >= SMURF_ELO_GAP:
+            return min(delta, SMURF_CAP)
+        return delta
+
+    host_delta = _maybe_cap(host_user, host_before, opp_before, host_delta)
+    opp_delta = _maybe_cap(opp_user, opp_before, host_before, opp_delta)
+
     host_user.elo = apply_delta(host_before, host_delta)
     opp_user.elo = apply_delta(opp_before, opp_delta)
 

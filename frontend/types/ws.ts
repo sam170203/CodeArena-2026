@@ -54,5 +54,17 @@ export type DuelEvent =
       type: "opponent_disconnected";
       payload: { user_id: string; reconnect_grace_ms: number };
     }
+  | {
+      type: "emote";
+      payload: { user_id: string; glyph: EmoteGlyph; sent_at: number };
+    }
   | { type: "system"; payload: { message: string } }
   | { type: "pong" };
+
+export type EmoteGlyph =
+  | "gg"
+  | "salt"
+  | "thinking"
+  | "coffee"
+  | "fire"
+  | "exclaim";

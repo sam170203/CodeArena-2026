@@ -9,6 +9,8 @@ import { ScanlineOverlay } from "@/components/primitives/ScanlineOverlay";
 import { VictoryOverlay } from "@/components/arena/VictoryOverlay";
 import { PromotionCeremony } from "@/components/arena/PromotionCeremony";
 import { DemotionToast } from "@/components/arena/DemotionToast";
+import { EmoteTray } from "@/components/arena/EmoteTray";
+import { FloatingEmotes } from "@/components/arena/FloatingEmotes";
 
 export default function DuelPage({
   params,
@@ -76,9 +78,7 @@ export default function DuelPage({
             ◀ EXIT
           </a>
           <DuelTimer startedAt={startedAt} capSeconds={duel.time_cap_seconds} />
-          <span className="font-mono text-[11px] tracking-[0.2em] text-[var(--color-text-3)]">
-            EMOTES · soon
-          </span>
+          <EmoteTray />
         </div>
 
         <div className="grid grid-cols-2 gap-8">
@@ -114,6 +114,7 @@ export default function DuelPage({
         )}
       </div>
 
+      <FloatingEmotes />
       <DemotionToast show={demotedMe} />
 
       {promotedMe && !ceremonyDone && complete?.newTier && myEloChange && (

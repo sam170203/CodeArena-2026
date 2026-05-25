@@ -23,6 +23,11 @@ from .api.routes.cf import router as cf_router
 from .api.routes.leaderboard import router as leaderboard_router
 from .api.routes.quests import router as quests_router
 from .api.routes.replay import router as replay_router
+from .api.routes.friend_duel import router as friend_duel_router
+from .api.routes.open_lobby import router as open_lobby_router
+from .api.routes.deck import router as deck_router
+from .api.routes.async_challenge import router as async_challenge_router
+from .api.routes.cosmetics import router as cosmetics_router
 
 # ================= DB INIT =================
 Base.metadata.create_all(bind=engine)
@@ -62,6 +67,11 @@ app.include_router(cf_router)
 app.include_router(leaderboard_router)
 app.include_router(quests_router)
 app.include_router(replay_router)
+app.include_router(friend_duel_router)
+app.include_router(open_lobby_router)
+app.include_router(deck_router)
+app.include_router(async_challenge_router)
+app.include_router(cosmetics_router)
 
 
 # ================= BASIC ENDPOINTS =================
@@ -361,6 +371,8 @@ def recent_duels(
 # ================= WEBSOCKETS =================
 @app.websocket("/ws/duel/{duel_id}")
 async def duel_ws(websocket: WebSocket, duel_id: str):
+    from .services.emote import check_and_record, valid_glyph
+
     await websocket.accept()
     await hub.subscribe("duel", duel_id, websocket)
     db = next(get_db())
@@ -371,6 +383,26 @@ async def duel_ws(websocket: WebSocket, duel_id: str):
             msg = await websocket.receive_text()
             if msg == "ping":
                 await websocket.send_json({"type": "pong"})
+                continue
+            try:
+                payload = json.loads(msg)
+            except Exception:
+                continue
+            if payload.get("type") == "emote":
+                user_id = payload.get("user_id")
+                glyph = payload.get("glyph")
+                if not user_id or not glyph or not valid_glyph(glyph):
+                    continue
+                if not check_and_record(user_id):
+                    await websocket.send_json({
+                        "type": "system",
+                        "payload": {"message": "emote rate limit"},
+                    })
+                    continue
+                await hub.broadcast("duel", duel_id, {
+                    "type": "emote",
+                    "payload": {"user_id": user_id, "glyph": glyph, "sent_at": __import__("time").time()},
+                })
     except WebSocketDisconnect:
         pass
     finally:
@@ -392,6 +424,22 @@ async def queue_ws(websocket: WebSocket, user_id: str):
         pass
     finally:
         await hub.unsubscribe("queue", user_id, websocket)
+
+
+@app.websocket("/ws/user/{user_id}")
+async def user_ws(websocket: WebSocket, user_id: str):
+    await websocket.accept()
+    await hub.subscribe("user", user_id, websocket)
+    try:
+        await websocket.send_json({"type": "connected", "payload": {"user_id": user_id}})
+        while True:
+            msg = await websocket.receive_text()
+            if msg == "ping":
+                await websocket.send_json({"type": "pong"})
+    except WebSocketDisconnect:
+        pass
+    finally:
+        await hub.unsubscribe("user", user_id, websocket)
 
 
 # ================= BACKGROUND WORKERS =================

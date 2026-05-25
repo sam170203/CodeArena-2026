@@ -1,7 +1,7 @@
 "use client";
 import { create } from "zustand";
 import { TypedWS, wsUrl } from "@/lib/ws";
-import type { DuelEvent, EloChange } from "@/types/ws";
+import type { DuelEvent, EloChange, EmoteGlyph } from "@/types/ws";
 import type { Duel } from "@/types/duel";
 import { api } from "@/lib/api";
 
@@ -10,9 +10,17 @@ interface RecentEvent {
   text: string;
 }
 
+interface FloatingEmote {
+  id: string;
+  userId: string;
+  glyph: EmoteGlyph;
+  receivedAt: number;
+}
+
 interface State {
   duel: Duel | null;
   recentEvents: RecentEvent[];
+  floatingEmotes: FloatingEmote[];
   socket: TypedWS<DuelEvent> | null;
   complete: {
     winnerId: string | null;
@@ -25,11 +33,14 @@ interface State {
   connect: (duelId: string) => void;
   disconnect: () => void;
   reset: () => void;
+  sendEmote: (userId: string, glyph: EmoteGlyph) => void;
+  dropEmote: (id: string) => void;
 }
 
 export const useDuel = create<State>((set, get) => ({
   duel: null,
   recentEvents: [],
+  floatingEmotes: [],
   socket: null,
   complete: null,
 
@@ -107,6 +118,22 @@ export const useDuel = create<State>((set, get) => ({
           },
         });
       }
+      if (ev.type === "emote") {
+        const id = `${ev.payload.user_id}-${ev.payload.sent_at}-${Math.random()
+          .toString(36)
+          .slice(2, 6)}`;
+        set({
+          floatingEmotes: [
+            ...get().floatingEmotes,
+            {
+              id,
+              userId: ev.payload.user_id,
+              glyph: ev.payload.glyph,
+              receivedAt: Date.now(),
+            },
+          ],
+        });
+      }
     });
     sock.connect();
     set({ socket: sock });
@@ -119,6 +146,22 @@ export const useDuel = create<State>((set, get) => ({
 
   reset() {
     get().socket?.close();
-    set({ duel: null, recentEvents: [], socket: null, complete: null });
+    set({
+      duel: null,
+      recentEvents: [],
+      floatingEmotes: [],
+      socket: null,
+      complete: null,
+    });
+  },
+
+  sendEmote(userId, glyph) {
+    const sock = get().socket;
+    if (!sock) return;
+    sock.send({ type: "emote", user_id: userId, glyph });
+  },
+
+  dropEmote(id) {
+    set({ floatingEmotes: get().floatingEmotes.filter((e) => e.id !== id) });
   },
 }));
