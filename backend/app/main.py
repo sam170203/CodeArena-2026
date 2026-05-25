@@ -22,6 +22,7 @@ from .api.routes.matchmaking import router as matchmaking_router
 from .api.routes.cf import router as cf_router
 from .api.routes.leaderboard import router as leaderboard_router
 from .api.routes.quests import router as quests_router
+from .api.routes.replay import router as replay_router
 
 # ================= DB INIT =================
 Base.metadata.create_all(bind=engine)
@@ -60,6 +61,7 @@ app.include_router(matchmaking_router)
 app.include_router(cf_router)
 app.include_router(leaderboard_router)
 app.include_router(quests_router)
+app.include_router(replay_router)
 
 
 # ================= BASIC ENDPOINTS =================

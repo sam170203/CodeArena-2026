@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import json
 import logging
 from datetime import datetime
 
 from sqlalchemy.orm import Session
 
-from app.models import Duel, DuelParticipant, DuelStep, EloHistory, User
+from app.models import Duel, DuelParticipant, DuelStep, EloHistory, ReplayEvent, User
 from app.services.elo import elo_delta, apply_delta, tier_for_elo
 from app.services.streak import tick_streak
 from app.services.quests import evaluate_after_duel
@@ -144,29 +145,49 @@ async def complete_duel(
     elif promotion_for == opp_user.id:
         new_tier = tier_for_elo(opp_user.elo).key
 
+    demotion_for: str | None = None
+    if host_change == "demoted":
+        demotion_for = host_user.id
+    elif opp_change == "demoted":
+        demotion_for = opp_user.id
+
+    elo_changes = {
+        host_user.id: {
+            "before": host_before,
+            "after": host_user.elo,
+            "delta": host_delta,
+        },
+        opp_user.id: {
+            "before": opp_before,
+            "after": opp_user.elo,
+            "delta": opp_delta,
+        },
+    }
+
+    payload = {
+        "winner_id": winner_user_id,
+        "promotion_for": promotion_for,
+        "new_tier": new_tier,
+        "demotion_for": demotion_for,
+        "elo_changes": elo_changes,
+    }
+
+    # Persist a duel_complete ReplayEvent so /replay can reconstruct the ending
+    ts_offset_ms = (
+        int((duel.finished_at - duel.started_at).total_seconds() * 1000)
+        if duel.started_at and duel.finished_at
+        else 0
+    )
+    db.add(
+        ReplayEvent(
+            duel_id=duel.id,
+            ts_offset_ms=ts_offset_ms,
+            user_id=None,
+            event_type="duel_complete",
+            payload_json=json.dumps(payload),
+        )
+    )
+
     db.commit()
 
-    await hub.broadcast(
-        "duel",
-        duel.id,
-        {
-            "type": "duel_complete",
-            "payload": {
-                "winner_id": winner_user_id,
-                "promotion_for": promotion_for,
-                "new_tier": new_tier,
-                "elo_changes": {
-                    host_user.id: {
-                        "before": host_before,
-                        "after": host_user.elo,
-                        "delta": host_delta,
-                    },
-                    opp_user.id: {
-                        "before": opp_before,
-                        "after": opp_user.elo,
-                        "delta": opp_delta,
-                    },
-                },
-            },
-        },
-    )
+    await hub.broadcast("duel", duel.id, {"type": "duel_complete", "payload": payload})

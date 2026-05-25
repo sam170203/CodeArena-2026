@@ -45,6 +45,9 @@ export type DuelEvent =
       payload: {
         winner_id: string | null;
         elo_changes: Record<string, EloChange>;
+        promotion_for?: string | null;
+        new_tier?: string | null;
+        demotion_for?: string | null;
       };
     }
   | {

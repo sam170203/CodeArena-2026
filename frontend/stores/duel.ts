@@ -17,6 +17,9 @@ interface State {
   complete: {
     winnerId: string | null;
     eloChanges: Record<string, EloChange>;
+    promotionFor: string | null;
+    newTier: string | null;
+    demotionFor: string | null;
   } | null;
   load: (duelId: string) => Promise<void>;
   connect: (duelId: string) => void;
@@ -98,6 +101,9 @@ export const useDuel = create<State>((set, get) => ({
           complete: {
             winnerId: ev.payload.winner_id,
             eloChanges: ev.payload.elo_changes,
+            promotionFor: ev.payload.promotion_for ?? null,
+            newTier: ev.payload.new_tier ?? null,
+            demotionFor: ev.payload.demotion_for ?? null,
           },
         });
       }

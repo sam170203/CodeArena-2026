@@ -1,5 +1,5 @@
 "use client";
-import { use, useEffect } from "react";
+import { use, useEffect, useState } from "react";
 import { useDuel } from "@/stores/duel";
 import { useAuth } from "@/stores/auth";
 import { OpponentPanel } from "@/components/arena/OpponentPanel";
@@ -7,6 +7,8 @@ import { ProblemCard } from "@/components/arena/ProblemCard";
 import { DuelTimer } from "@/components/arena/DuelTimer";
 import { ScanlineOverlay } from "@/components/primitives/ScanlineOverlay";
 import { VictoryOverlay } from "@/components/arena/VictoryOverlay";
+import { PromotionCeremony } from "@/components/arena/PromotionCeremony";
+import { DemotionToast } from "@/components/arena/DemotionToast";
 
 export default function DuelPage({
   params,
@@ -58,6 +60,10 @@ export default function DuelPage({
         : "loss"
       : null;
 
+  const promotedMe = !!(complete && me && complete.promotionFor === me.id);
+  const demotedMe = !!(complete && me && complete.demotionFor === me.id);
+  const [ceremonyDone, setCeremonyDone] = useState(false);
+
   return (
     <>
       <ScanlineOverlay />
@@ -108,12 +114,23 @@ export default function DuelPage({
         )}
       </div>
 
-      {result && myEloChange && (
+      <DemotionToast show={demotedMe} />
+
+      {promotedMe && !ceremonyDone && complete?.newTier && myEloChange && (
+        <PromotionCeremony
+          newTier={complete.newTier}
+          newElo={myEloChange.after}
+          onDone={() => setCeremonyDone(true)}
+        />
+      )}
+
+      {result && myEloChange && (!promotedMe || ceremonyDone) && (
         <VictoryOverlay
           result={result}
           myEloBefore={myEloChange.before}
           myEloAfter={myEloChange.after}
           myDelta={myEloChange.delta}
+          duelId={id}
         />
       )}
     </>

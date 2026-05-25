@@ -9,6 +9,7 @@ interface Props {
   myEloBefore: number;
   myEloAfter: number;
   myDelta: number;
+  duelId?: string;
 }
 
 export function VictoryOverlay({
@@ -16,6 +17,7 @@ export function VictoryOverlay({
   myEloBefore,
   myEloAfter,
   myDelta,
+  duelId,
 }: Props) {
   const title = result === "win" ? "VICTORY." : result === "loss" ? "DEFEAT." : "DRAW.";
   const tone =
@@ -76,6 +78,13 @@ export function VictoryOverlay({
         <Link href="/play">
           <Button size="lg">Back to arena</Button>
         </Link>
+        {duelId && (
+          <Link href={`/duel/${duelId}/replay`}>
+            <Button size="lg" variant="secondary">
+              View replay
+            </Button>
+          </Link>
+        )}
         <Link href="/leaderboard">
           <Button size="lg" variant="ghost">
             Leaderboard
