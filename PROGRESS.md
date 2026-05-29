@@ -12,6 +12,21 @@
 - ✅ **Phase 1** — Core ranked duel loop (25 tasks)
 - ✅ **Phase 2** — Status + retention (T1–T11)
 - ✅ **Phase 3** — Personality + breadth (T1–T8): emotes, friend duel, open lobby, decks UI, async challenge, cosmetics, spectate, anti-abuse
+- ✅ **Deployment configs** — `render.yaml` (backend + Postgres), `vercel.json` (frontend), `DEPLOYMENT.md` step-by-step
+
+## Deployment quickstart
+
+**Currently deployed at:** `https://code-arena-wine.vercel.app` is stuck on
+pre-Phase-3 code AND its frontend bundle was built with `NEXT_PUBLIC_API_BASE_URL=http://localhost:8000`,
+so registration tries to POST to the visitor's own machine. To fix:
+
+1. Deploy backend on Render — see [DEPLOYMENT.md](DEPLOYMENT.md). The
+   `render.yaml` blueprint sets up the web service + Postgres in one click.
+2. Add Vercel env vars: `NEXT_PUBLIC_API_BASE_URL` and `NEXT_PUBLIC_WS_BASE_URL`
+   pointing to the Render URL.
+3. Redeploy Vercel.
+
+After that, the live site has the full Phase 1+2+3 surface.
 
 ## Verification snapshot (last green build)
 

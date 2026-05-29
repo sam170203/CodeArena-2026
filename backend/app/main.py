@@ -40,19 +40,34 @@ app = FastAPI(
 )
 
 # ================= CORS =================
-allowed_origins = os.getenv(
-    "CORS_ORIGINS",
-    ",".join([
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-        "https://code-arena-ievp.vercel.app",
-        "https://code-arena-wine.vercel.app",
-    ]),
-).split(",")
+# Sources of allowed origins (merged):
+#   1. CORS_ORIGINS env var — comma-separated list (manual overrides / extras).
+#   2. FRONTEND_URL env var — single primary URL set on Render after the
+#      frontend Vercel deploy is known.
+#   3. Hard-coded local dev + the known Vercel deployments.
+_default_origins = [
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "https://code-arena-ievp.vercel.app",
+    "https://code-arena-wine.vercel.app",
+]
+
+_explicit_origins = [
+    o.strip() for o in os.getenv("CORS_ORIGINS", "").split(",") if o.strip()
+]
+_frontend_url = os.getenv("FRONTEND_URL", "").strip()
+if _frontend_url:
+    _explicit_origins.append(_frontend_url)
+
+# Allow any *.vercel.app preview URL by regex (each PR gets a new subdomain).
+_allow_origin_regex = r"https://.*\.vercel\.app$"
+
+allowed_origins = list(dict.fromkeys(_default_origins + _explicit_origins))
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[o.strip() for o in allowed_origins if o.strip()],
+    allow_origins=allowed_origins,
+    allow_origin_regex=_allow_origin_regex,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

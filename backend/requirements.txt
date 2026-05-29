@@ -1,5 +1,5 @@
 fastapi
-uvicorn
+uvicorn[standard]
 pydantic
 requests
 sqlalchemy
@@ -7,3 +7,6 @@ redis
 httpx
 websockets
 aiofiles
+psycopg2-binary
+pytest
+pytest-asyncio

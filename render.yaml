@@ -1,0 +1,40 @@
+# Render Blueprint for CodeArena backend.
+# To deploy:
+#   1. Push this file to GitHub (already on feat/db-layer).
+#   2. Render dashboard → New → Blueprint → select sam170203/CodeArena-2026.
+#   3. Render reads this file and provisions: 1 web service + 1 Postgres DB.
+#   4. After provisioning, set FRONTEND_URL on the web service to the Vercel
+#      URL once the frontend is deployed (so CORS lets browsers in).
+
+services:
+  - type: web
+    name: codearena-backend
+    runtime: python
+    plan: free
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
+      - key: DATABASE_URL
+        fromDatabase:
+          name: codearena-db
+          property: connectionString
+      - key: SECRET_KEY
+        generateValue: true
+      - key: FRONTEND_URL
+        # Set this AFTER the frontend Vercel deploy is up. Example value:
+        # https://code-arena-wine.vercel.app
+        sync: false
+      - key: CORS_ORIGINS
+        # Comma-separated list. Render reads this; you can also paste extra
+        # origins here (e.g. preview URLs) once you have them.
+        sync: false
+
+databases:
+  - name: codearena-db
+    plan: free
+    databaseName: codearena
+    user: codearena
