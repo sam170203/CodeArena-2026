@@ -4,14 +4,13 @@ import { useDuel } from "@/stores/duel";
 import { useAuth } from "@/stores/auth";
 import { OpponentPanel } from "@/components/arena/OpponentPanel";
 import { ProblemCard } from "@/components/arena/ProblemCard";
-import { DuelTimer } from "@/components/arena/DuelTimer";
 import { ScanlineOverlay } from "@/components/primitives/ScanlineOverlay";
 import { VictoryOverlay } from "@/components/arena/VictoryOverlay";
 import { PromotionCeremony } from "@/components/arena/PromotionCeremony";
 import { DemotionToast } from "@/components/arena/DemotionToast";
-import { EmoteTray } from "@/components/arena/EmoteTray";
 import { FloatingEmotes } from "@/components/arena/FloatingEmotes";
 import { ActivityTicker } from "@/components/arena/ActivityTicker";
+import { DuelHeader } from "@/components/arena/DuelHeader";
 
 export default function DuelPage({
   params,
@@ -76,16 +75,13 @@ export default function DuelPage({
     <>
       <ScanlineOverlay />
       <div className="space-y-6">
-        <div className="flex items-center justify-between border-b border-[var(--color-border)] pb-3">
-          <a
-            href="/play"
-            className="font-mono text-[11px] tracking-[0.2em] text-[var(--color-text-3)] hover:text-[var(--color-text-1)]"
-          >
-            ◀ EXIT
-          </a>
-          <DuelTimer startedAt={startedAt} capSeconds={duel.time_cap_seconds} />
-          <EmoteTray />
-        </div>
+        <DuelHeader
+          duelId={id}
+          opponentName={opp?.username ?? "—"}
+          startedAt={startedAt}
+          capSeconds={duel.time_cap_seconds}
+          duelStatus={duel.status}
+        />
 
         <div className="grid grid-cols-2 gap-8">
           <OpponentPanel

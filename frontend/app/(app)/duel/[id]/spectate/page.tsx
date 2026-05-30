@@ -3,10 +3,10 @@ import { use, useEffect } from "react";
 import { useDuel } from "@/stores/duel";
 import { OpponentPanel } from "@/components/arena/OpponentPanel";
 import { ProblemCard } from "@/components/arena/ProblemCard";
-import { DuelTimer } from "@/components/arena/DuelTimer";
 import { ScanlineOverlay } from "@/components/primitives/ScanlineOverlay";
 import { FloatingEmotes } from "@/components/arena/FloatingEmotes";
 import { NeonText } from "@/components/primitives/NeonText";
+import { DuelHeader } from "@/components/arena/DuelHeader";
 
 export default function SpectatePage({
   params,
@@ -53,18 +53,14 @@ export default function SpectatePage({
     <>
       <ScanlineOverlay />
       <div className="space-y-6">
-        <div className="flex items-center justify-between border-b border-[var(--color-border)] pb-3">
-          <a
-            href="/play/lobby"
-            className="font-mono text-[11px] tracking-[0.2em] text-[var(--color-text-3)] hover:text-[var(--color-text-1)]"
-          >
-            ◀ LOBBY
-          </a>
-          <DuelTimer startedAt={startedAt} capSeconds={duel.time_cap_seconds} />
-          <span className="rounded border border-[var(--color-neon-cyan)]/40 bg-[var(--color-neon-cyan)]/10 px-2.5 py-1 font-mono text-[10px] tracking-[0.25em] text-[var(--color-neon-cyan)] uppercase">
-            spectating
-          </span>
-        </div>
+        <DuelHeader
+          duelId={id}
+          opponentName={`${host?.username ?? "host"} vs ${opp?.username ?? "—"}`}
+          startedAt={startedAt}
+          capSeconds={duel.time_cap_seconds}
+          duelStatus={duel.status}
+          spectatorMode
+        />
 
         <div className="grid grid-cols-2 gap-8">
           <OpponentPanel

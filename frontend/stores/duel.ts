@@ -29,12 +29,14 @@ interface State {
     newTier: string | null;
     demotionFor: string | null;
   } | null;
+  forfeitInFlight: boolean;
   load: (duelId: string) => Promise<void>;
   connect: (duelId: string) => void;
   disconnect: () => void;
   reset: () => void;
   sendEmote: (userId: string, glyph: EmoteGlyph) => void;
   dropEmote: (id: string) => void;
+  forfeit: (duelId: string) => Promise<void>;
 }
 
 export const useDuel = create<State>((set, get) => ({
@@ -43,6 +45,7 @@ export const useDuel = create<State>((set, get) => ({
   floatingEmotes: [],
   socket: null,
   complete: null,
+  forfeitInFlight: false,
 
   async load(duelId) {
     const { data } = await api.get<Duel>(`/duel/${duelId}/state`);
@@ -163,5 +166,17 @@ export const useDuel = create<State>((set, get) => ({
 
   dropEmote(id) {
     set({ floatingEmotes: get().floatingEmotes.filter((e) => e.id !== id) });
+  },
+
+  async forfeit(duelId) {
+    if (get().forfeitInFlight) return;
+    set({ forfeitInFlight: true });
+    try {
+      await api.post(`/duel/${duelId}/forfeit`);
+      // Backend broadcasts duel_complete via WS, which the existing handler
+      // already maps to `complete` state. Nothing else to do.
+    } finally {
+      set({ forfeitInFlight: false });
+    }
   },
 }));
