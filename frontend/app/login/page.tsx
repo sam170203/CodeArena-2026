@@ -1,5 +1,5 @@
 "use client";
-import { FormEvent, useState } from "react";
+import { FormEvent, Suspense, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { api } from "@/lib/api";
@@ -7,7 +7,11 @@ import { useAuth } from "@/stores/auth";
 import { Button } from "@/components/primitives/Button";
 import { NeonText } from "@/components/primitives/NeonText";
 
-export default function LoginPage() {
+// Next.js App Router refuses to prerender a page that calls useSearchParams()
+// at module scope without a Suspense boundary. Split the inner page into its
+// own component and wrap it.
+
+function LoginInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const reason = searchParams?.get("reason");
@@ -56,7 +60,8 @@ export default function LoginPage() {
             // session expired
           </div>
           <div className="text-xs text-[var(--color-text-2)]">
-            Your previous session is no longer valid. Sign in again — or register if you don&apos;t have an account.
+            Your previous session is no longer valid. Sign in again — or register
+            if you don&apos;t have an account.
           </div>
         </div>
       )}
@@ -93,5 +98,19 @@ export default function LoginPage() {
         </Link>
       </p>
     </main>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex min-h-screen items-center justify-center font-mono text-xs tracking-[0.3em] text-[var(--color-text-3)]">
+          // LOADING…
+        </div>
+      }
+    >
+      <LoginInner />
+    </Suspense>
   );
 }

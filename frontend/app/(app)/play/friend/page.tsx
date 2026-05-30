@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "@/stores/auth";
@@ -22,6 +22,23 @@ interface FriendRoom {
 }
 
 export default function FriendDuelPage() {
+  // Wrapper that satisfies Next.js's "useSearchParams must be inside Suspense"
+  // rule. The actual page body uses useSearchParams to pick up ?code=ABC from
+  // the lobby's JOIN link.
+  return (
+    <Suspense
+      fallback={
+        <div className="flex min-h-[60vh] items-center justify-center font-mono text-xs tracking-[0.3em] text-[var(--color-text-3)]">
+          // LOADING…
+        </div>
+      }
+    >
+      <FriendDuelInner />
+    </Suspense>
+  );
+}
+
+function FriendDuelInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const user = useAuth((s) => s.user);
