@@ -11,6 +11,7 @@ import { PromotionCeremony } from "@/components/arena/PromotionCeremony";
 import { DemotionToast } from "@/components/arena/DemotionToast";
 import { EmoteTray } from "@/components/arena/EmoteTray";
 import { FloatingEmotes } from "@/components/arena/FloatingEmotes";
+import { ActivityTicker } from "@/components/arena/ActivityTicker";
 
 export default function DuelPage({
   params,
@@ -19,7 +20,10 @@ export default function DuelPage({
 }) {
   const { id } = use(params);
   const me = useAuth((s) => s.user);
-  const { duel, load, connect, disconnect, complete } = useDuel();
+  const { duel, load, connect, disconnect, complete, recentEvents } = useDuel();
+
+  // ALL hooks must run unconditionally on every render.
+  const [ceremonyDone, setCeremonyDone] = useState(false);
 
   useEffect(() => {
     load(id).catch(() => {});
@@ -27,6 +31,7 @@ export default function DuelPage({
     return () => disconnect();
   }, [id, load, connect, disconnect]);
 
+  // Conditional rendering — but never conditional hooks.
   if (!duel) {
     return (
       <div className="flex min-h-[60vh] items-center justify-center font-mono text-xs tracking-[0.3em] text-[var(--color-text-3)]">
@@ -48,8 +53,10 @@ export default function DuelPage({
     status: meIsHost ? s.opponent_status : s.host_status,
   }));
 
-  const currentStepIdx = Math.min(self?.current_step ?? 0, duel.steps.length - 1);
-  const currentStep = duel.steps[currentStepIdx];
+  const myStepIdx = Math.min(self?.current_step ?? 0, duel.steps.length - 1);
+  const oppStepIdx = Math.min(opp?.current_step ?? 0, duel.steps.length - 1);
+  const myCurrentStep = duel.steps[myStepIdx];
+  const oppCurrentStep = duel.steps[oppStepIdx];
   const startedAt = duel.started_at ?? new Date().toISOString();
 
   const myEloChange = complete && me ? complete.eloChanges[me.id] : null;
@@ -64,7 +71,6 @@ export default function DuelPage({
 
   const promotedMe = !!(complete && me && complete.promotionFor === me.id);
   const demotedMe = !!(complete && me && complete.demotionFor === me.id);
-  const [ceremonyDone, setCeremonyDone] = useState(false);
 
   return (
     <>
@@ -89,6 +95,15 @@ export default function DuelPage({
             steps={mySteps}
             current={self?.current_step ?? 0}
             lastVerdict={self?.last_verdict}
+            currentProblem={
+              myCurrentStep
+                ? {
+                    name: myCurrentStep.problem.name,
+                    rating: myCurrentStep.rating,
+                  }
+                : null
+            }
+            isYou
           />
           <OpponentPanel
             align="right"
@@ -97,21 +112,31 @@ export default function DuelPage({
             steps={oppSteps}
             current={opp?.current_step ?? 0}
             lastVerdict={opp?.last_verdict}
+            currentProblem={
+              oppCurrentStep
+                ? {
+                    name: oppCurrentStep.problem.name,
+                    rating: oppCurrentStep.rating,
+                  }
+                : null
+            }
           />
         </div>
 
-        {currentStep && (
+        {myCurrentStep && (
           <ProblemCard
-            rating={currentStep.rating}
-            step={currentStep.step_index}
+            rating={myCurrentStep.rating}
+            step={myCurrentStep.step_index}
             total={duel.steps.length}
-            contestId={currentStep.problem.contest_id}
-            index={currentStep.problem.index}
-            name={currentStep.problem.name}
-            tags={currentStep.problem.tags ?? []}
+            contestId={myCurrentStep.problem.contest_id}
+            index={myCurrentStep.problem.index}
+            name={myCurrentStep.problem.name}
+            tags={myCurrentStep.problem.tags ?? []}
             lastVerdict={self?.last_verdict}
           />
         )}
+
+        <ActivityTicker events={recentEvents} />
       </div>
 
       <FloatingEmotes />
