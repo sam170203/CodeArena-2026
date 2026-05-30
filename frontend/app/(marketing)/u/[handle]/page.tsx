@@ -127,7 +127,7 @@ export default function PublicProfilePage({
         </Link>
       </header>
 
-      <section className="grid grid-cols-4 gap-4">
+      <section className="grid grid-cols-2 sm:grid-cols-4 gap-4">
         <StatTile label="ELO" value={data.elo} />
         <StatTile
           label="W / L"

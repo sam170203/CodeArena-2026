@@ -44,7 +44,7 @@ export default function ProfilePage() {
         </Link>
       </div>
 
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
         <StatTile label="ELO" value={elo} />
         <StatTile label="Wins" value={user.duel_wins ?? 0} />
         <StatTile label="Losses" value={user.duel_losses ?? 0} />

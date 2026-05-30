@@ -32,7 +32,7 @@ export function SearchBar() {
   return (
     <form
       onSubmit={submit}
-      className={`flex w-[300px] items-center gap-2 rounded border bg-[var(--color-surface)] px-3 transition ${
+      className={`flex w-full max-w-[300px] items-center gap-2 rounded border bg-[var(--color-surface)] px-3 transition ${
         focused
           ? "border-[var(--color-border-hot)] ring-1 ring-[var(--color-neon-pink)]/30"
           : "border-[var(--color-border)]"

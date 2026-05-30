@@ -3,11 +3,11 @@ import { Topbar } from "./Topbar";
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   return (
-    <div className="grid min-h-screen grid-cols-[72px_1fr]">
+    <div className="grid min-h-screen grid-cols-[56px_1fr] sm:grid-cols-[72px_1fr]">
       <Rail />
       <div className="flex min-w-0 flex-col">
         <Topbar />
-        <main className="mx-auto w-full max-w-[1280px] flex-1 px-10 py-8">
+        <main className="mx-auto w-full max-w-[1280px] flex-1 px-4 sm:px-10 py-5 sm:py-8">
           {children}
         </main>
       </div>
