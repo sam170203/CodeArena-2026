@@ -149,6 +149,7 @@ def get_me(current_user: User = Depends(_get_current_user), db: Session = Depend
         "cf_rating": current_user.cf_rating,
         "elo": current_user.elo,
         "xp": current_user.xp,
+        "role": current_user.role,
         "duel_wins": current_user.duel_wins,
         "duel_losses": current_user.duel_losses,
         "created_at": current_user.created_at.isoformat() if current_user.created_at else None,

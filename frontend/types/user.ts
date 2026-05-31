@@ -4,6 +4,8 @@ export interface StreakState {
   shields_remaining: number;
 }
 
+export type UserRole = "user" | "moderator" | "admin" | "superadmin";
+
 export interface User {
   id: string;
   username: string;
@@ -14,6 +16,7 @@ export interface User {
   duel_wins?: number;
   duel_losses?: number;
   xp?: number;
+  role?: UserRole;
   created_at?: string;
   streak?: StreakState;
 }

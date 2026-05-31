@@ -5,6 +5,7 @@ from datetime import datetime
 
 from fastapi import Depends, FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
 from . import crud, schemas
@@ -29,6 +30,8 @@ from .api.routes.open_lobby import router as open_lobby_router
 from .api.routes.deck import router as deck_router
 from .api.routes.async_challenge import router as async_challenge_router
 from .api.routes.cosmetics import router as cosmetics_router
+from .api.routes.admin import router as admin_router
+from .services.metrics import metrics_response, MetricsMiddleware
 
 # ================= DB INIT =================
 Base.metadata.create_all(bind=engine)
@@ -86,6 +89,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Prometheus metrics middleware (records every request)
+app.add_middleware(MetricsMiddleware)
+
 # ================= ROUTES =================
 app.include_router(auth_router)
 app.include_router(practice_router)
@@ -100,6 +106,7 @@ app.include_router(open_lobby_router)
 app.include_router(deck_router)
 app.include_router(async_challenge_router)
 app.include_router(cosmetics_router)
+app.include_router(admin_router)
 
 
 # ================= BASIC ENDPOINTS =================
@@ -111,6 +118,11 @@ def root():
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+
+@app.get("/metrics")
+def metrics():
+    return Response(content=metrics_response(), media_type="text/plain")
 
 
 # ================= CODEFORCES =================

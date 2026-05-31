@@ -2,6 +2,11 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/cn";
+import { useAuth } from "@/stores/auth";
+
+function isMod(role?: string) {
+  return role === "moderator" || role === "admin" || role === "superadmin";
+}
 
 const ITEMS = [
   { href: "/play", label: "Play", glyph: "⚡" },
@@ -12,6 +17,8 @@ const ITEMS = [
 
 export function Rail() {
   const pathname = usePathname();
+  const user = useAuth((s) => s.user);
+
   return (
     <nav className="flex flex-col items-center gap-3 border-r border-[var(--color-border)] bg-gradient-to-b from-[var(--color-surface)]/60 to-[var(--color-bg-void)]/90 py-5 backdrop-blur-xl">
       <Link
@@ -38,6 +45,23 @@ export function Rail() {
           </Link>
         );
       })}
+
+      {/* Admin link — only visible to moderators and above */}
+      {user && isMod(user.role) && (
+        <Link
+          href="/admin"
+          title="Admin"
+          className={cn(
+            "flex h-11 w-11 items-center justify-center rounded-lg border transition",
+            pathname?.startsWith("/admin")
+              ? "border-[var(--color-border-hot)] bg-[var(--color-neon-pink)]/10 text-[var(--color-neon-pink)]"
+              : "border-transparent text-[var(--color-text-3)] hover:border-[var(--color-border)] hover:text-[var(--color-text-1)]"
+          )}
+        >
+          <span aria-hidden>◈</span>
+        </Link>
+      )}
+
       <div className="flex-1" />
       <Link
         href="/profile/settings"

@@ -34,6 +34,9 @@ class User(Base):
     cf_rank = Column(String(50), nullable=True)
     solved_count = Column(Integer, default=0)
 
+    role = Column(String(16), default="user", nullable=False)  # user | moderator | admin | superadmin
+    is_suspended = Column(Boolean, default=False, nullable=False)
+
     elo = Column(Integer, default=1200, nullable=False)
     timezone = Column(String(64), nullable=True)
 

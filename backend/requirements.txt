@@ -10,3 +10,4 @@ aiofiles
 psycopg2-binary
 pytest
 pytest-asyncio
+prometheus-client
