@@ -122,23 +122,33 @@ export function DuelHeader({
                 <span className="text-[var(--color-neon-cyan)]">{opponentName}</span>{" "}
                 will be declared the winner. You'll lose ELO. There's no undo.
               </p>
-              <div className="flex gap-3">
-                <Button
-                  variant="ghost"
-                  onClick={() => setShowConfirm(false)}
-                  disabled={forfeitInFlight}
-                  className="flex-1"
-                >
-                  Keep dueling
-                </Button>
-                <button
-                  onClick={() => forfeit(duelId)}
-                  disabled={forfeitInFlight}
-                  className="flex-1 rounded-lg border border-[var(--color-fail-red)] bg-[var(--color-fail-red)]/[0.12] px-4 py-2.5 font-display font-extrabold text-xs tracking-[0.2em] uppercase text-[var(--color-fail-red)] transition hover:bg-[var(--color-fail-red)]/[0.2] disabled:opacity-50"
-                >
-                  {forfeitInFlight ? "…" : "Forfeit"}
-                </button>
-              </div>
+              {forfeitInFlight ? (
+                <div className="py-4 text-center">
+                  <div className="font-mono text-[11px] tracking-[0.3em] text-[var(--color-fail-red)] uppercase mb-3">
+                    // ending duel
+                  </div>
+                  <div className="inline-block h-8 w-8 rounded-full border-2 border-[var(--color-fail-red)] border-t-transparent animate-spin" />
+                  <div className="mt-3 font-mono text-xs text-[var(--color-text-3)]">
+                    declaring opponent winner…
+                  </div>
+                </div>
+              ) : (
+                <div className="flex gap-3">
+                  <Button
+                    variant="ghost"
+                    onClick={() => setShowConfirm(false)}
+                    className="flex-1"
+                  >
+                    Keep dueling
+                  </Button>
+                  <button
+                    onClick={() => forfeit(duelId)}
+                    className="flex-1 rounded-lg border border-[var(--color-fail-red)] bg-[var(--color-fail-red)]/[0.12] px-4 py-2.5 font-display font-extrabold text-xs tracking-[0.2em] uppercase text-[var(--color-fail-red)] transition hover:bg-[var(--color-fail-red)]/[0.2]"
+                  >
+                    Forfeit
+                  </button>
+                </div>
+              )}
             </motion.div>
           </motion.div>
         )}
