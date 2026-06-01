@@ -133,9 +133,28 @@ def login(user_in: UserLogin, db: Session = Depends(get_db)):
     return TokenResponse(access_token=token)
 
 
-@router.get("/me", response_model=UserMe)
-def get_me(current_user: User = Depends(_get_current_user)):
-    return current_user
+@router.get("/me")
+def get_me(current_user: User = Depends(_get_current_user), db: Session = Depends(get_db)):
+    from app.models import Streak
+
+    streak = db.query(Streak).filter(Streak.user_id == current_user.id).first()
+    return {
+        "id": current_user.id,
+        "username": current_user.username,
+        "email": current_user.email,
+        "cf_handle": current_user.cf_handle,
+        "cf_rating": current_user.cf_rating,
+        "elo": current_user.elo,
+        "xp": current_user.xp,
+        "duel_wins": current_user.duel_wins,
+        "duel_losses": current_user.duel_losses,
+        "created_at": current_user.created_at.isoformat() if current_user.created_at else None,
+        "streak": {
+            "current_count": streak.current_count if streak else 0,
+            "longest_count": streak.longest_count if streak else 0,
+            "shields_remaining": streak.shields_remaining if streak else 0,
+        },
+    }
 
 
 @router.put("/cf-handle")

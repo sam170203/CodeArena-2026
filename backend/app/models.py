@@ -34,6 +34,9 @@ class User(Base):
     cf_rank = Column(String(50), nullable=True)
     solved_count = Column(Integer, default=0)
 
+    elo = Column(Integer, default=1200, nullable=False)
+    timezone = Column(String(64), nullable=True)
+
     duel_wins = Column(Integer, default=0)
     duel_losses = Column(Integer, default=0)
 
@@ -62,6 +65,9 @@ class Duel(Base):
     status = Column(String(32), default="waiting", nullable=False)  # waiting, active, finished
     winner_id = Column(String(36), ForeignKey("users.id"), nullable=True)
 
+    format = Column(String(32), default="speedrun_ladder", nullable=False)
+    time_cap_seconds = Column(Integer, default=2700, nullable=False)
+
     started_at = Column(DateTime, nullable=True)
     finished_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -70,6 +76,7 @@ class Duel(Base):
     participants = relationship("DuelParticipant", back_populates="duel", cascade="all, delete-orphan")
     submissions = relationship("Submission", back_populates="duel")
     chat_messages = relationship("ChatMessage", back_populates="duel")
+    steps = relationship("DuelStep", back_populates="duel", cascade="all, delete-orphan")
 
 
 class DuelParticipant(Base):
@@ -193,3 +200,106 @@ class PracticeSheetItem(Base):
     last_seen_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     user = relationship("User", back_populates="practice_items")
+
+class DuelStep(Base):
+    __tablename__ = "duel_steps"
+    __table_args__ = (UniqueConstraint("duel_id", "step_index", name="uq_duel_step"),)
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    duel_id = Column(String(36), ForeignKey("duels.id"), nullable=False, index=True)
+    step_index = Column(Integer, nullable=False)
+    rating = Column(Integer, nullable=False)
+
+    problem_id = Column(String(128), nullable=False)
+    problem_contest_id = Column(Integer, nullable=False)
+    problem_index = Column(String(8), nullable=False)
+    problem_name = Column(String(255), nullable=False)
+    problem_tags_json = Column(Text, nullable=True)
+
+    host_status = Column(String(16), default="pending", nullable=False)
+    host_solved_at = Column(DateTime, nullable=True)
+    opponent_status = Column(String(16), default="pending", nullable=False)
+    opponent_solved_at = Column(DateTime, nullable=True)
+
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    duel = relationship("Duel", back_populates="steps")
+
+
+class MatchmakingQueueEntry(Base):
+    __tablename__ = "matchmaking_queue"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    user_id = Column(String(36), ForeignKey("users.id"), nullable=False, unique=True, index=True)
+    mode = Column(String(32), default="speedrun_ladder", nullable=False)
+    elo_at_enqueue = Column(Integer, nullable=False)
+    deck_tags_json = Column(Text, nullable=True)
+    enqueued_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    expires_at = Column(DateTime, nullable=True)
+
+
+class EloHistory(Base):
+    __tablename__ = "elo_history"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(String(36), ForeignKey("users.id"), nullable=False, index=True)
+    duel_id = Column(String(36), ForeignKey("duels.id"), nullable=False, index=True)
+    elo_before = Column(Integer, nullable=False)
+    elo_after = Column(Integer, nullable=False)
+    delta = Column(Integer, nullable=False)
+    opponent_id = Column(String(36), nullable=True)
+    result = Column(String(8), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class Streak(Base):
+    __tablename__ = "streaks"
+
+    user_id = Column(String(36), ForeignKey("users.id"), primary_key=True)
+    current_count = Column(Integer, default=0, nullable=False)
+    longest_count = Column(Integer, default=0, nullable=False)
+    last_duel_local_date = Column(String(10), nullable=True)  # YYYY-MM-DD in user's tz
+    shields_remaining = Column(Integer, default=0, nullable=False)
+    timezone = Column(String(64), nullable=True)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class Quest(Base):
+    __tablename__ = "quests"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    slug = Column(String(64), unique=True, nullable=False, index=True)
+    title_template = Column(String(255), nullable=False)
+    kind = Column(String(16), nullable=False)  # daily | weekly
+    rule_json = Column(Text, nullable=False)
+    xp_reward = Column(Integer, default=0, nullable=False)
+    shard_reward = Column(Integer, default=0, nullable=False)
+    shield_reward = Column(Integer, default=0, nullable=False)
+
+
+class QuestProgress(Base):
+    __tablename__ = "quest_progress"
+    __table_args__ = (
+        UniqueConstraint("user_id", "quest_id", "rolled_for_date", name="uq_quest_progress"),
+    )
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    user_id = Column(String(36), ForeignKey("users.id"), nullable=False, index=True)
+    quest_id = Column(String(36), ForeignKey("quests.id"), nullable=False, index=True)
+    rolled_for_date = Column(String(10), nullable=False)  # YYYY-MM-DD local
+    progress_json = Column(Text, nullable=False, default="{}")
+    completed_at = Column(DateTime, nullable=True)
+    claimed_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class ReplayEvent(Base):
+    __tablename__ = "replay_events"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    duel_id = Column(String(36), ForeignKey("duels.id"), nullable=False, index=True)
+    ts_offset_ms = Column(Integer, nullable=False)
+    user_id = Column(String(36), nullable=True)
+    event_type = Column(String(32), nullable=False)
+    payload_json = Column(Text, nullable=False, default="{}")
+    created_at = Column(DateTime, default=datetime.utcnow)
