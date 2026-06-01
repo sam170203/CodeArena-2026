@@ -17,6 +17,8 @@ from .services.elo import tier_for_elo
 from .services.ws_hub import hub
 from .services.matchmaker import run_matchmaker_loop
 from .services.cf_poller import run_cf_poller_loop
+from .services.duel_roles import host_and_opponent, is_duel_host
+from .services.cf_sync import process_duel_cf, verify_cf_handle
 from .api.routes.auth import router as auth_router
 from .api.routes.practice import router as practice_router
 from .api.routes.duel import router as duel_router
@@ -239,10 +241,16 @@ def _serialize_duel_state(db: Session, duel_id: str):
             len(step_rows),  # all solved → past last index
         )
         elo = (user.elo if user else 1200) or 1200
+        cf_handle = (user.cf_handle if user else None) or None
+        cf_valid, cf_error = (True, None)
+        if cf_handle:
+            cf_valid, cf_error = verify_cf_handle(cf_handle)
         return {
             "user_id": row.user_id,
             "username": user.username if user else row.user_id,
-            "cf_handle": (user.cf_handle if user else None),
+            "cf_handle": cf_handle,
+            "cf_valid": cf_valid,
+            "cf_error": cf_error,
             "elo": elo,
             "tier": tier_for_elo(elo).key,
             "current_step": current_step,
@@ -250,8 +258,9 @@ def _serialize_duel_state(db: Session, duel_id: str):
             "joined_at": iso_utc(row.joined_at),
         }
 
-    host_payload = _participant_payload(participant_rows[0], True) if len(participant_rows) >= 1 else None
-    opp_payload = _participant_payload(participant_rows[1], False) if len(participant_rows) >= 2 else None
+    host_row, opp_row = host_and_opponent(duel, participant_rows)
+    host_payload = _participant_payload(host_row, True) if host_row else None
+    opp_payload = _participant_payload(opp_row, False) if opp_row else None
 
     return {
         "exists": True,
@@ -273,6 +282,21 @@ def get_duel_state(duel_id: str, db: Session = Depends(get_db)):
     if not state.get("exists"):
         raise HTTPException(status_code=404, detail="Duel not found")
     return state
+
+
+@app.post("/duel/{duel_id}/sync")
+async def sync_duel_verdicts(duel_id: str, db: Session = Depends(get_db)):
+    """Force-check Codeforces submissions for an active duel (client poll target)."""
+    duel = db.query(Duel).filter(Duel.id == duel_id).first()
+    if not duel:
+        raise HTTPException(status_code=404, detail="Duel not found")
+    if duel.status != "active":
+        raise HTTPException(status_code=400, detail="Duel is not active")
+
+    await process_duel_cf(db, duel, broadcast=True)
+    db.refresh(duel)
+    state = _serialize_duel_state(db, duel_id)
+    return {"sync": True, "state": state}
 
 
 # ================= profile + history endpoints =================
@@ -409,7 +433,7 @@ def recent_duels(
                 .order_by(DuelParticipant.joined_at.asc())
                 .all()
             )
-            is_host = bool(parts and parts[0].user_id == current_user.id)
+            is_host = bool(duel and is_duel_host(duel, current_user.id))
             step_rows = db.query(DuelStep).filter(DuelStep.duel_id == duel.id).all()
             steps_solved = sum(
                 1

@@ -227,7 +227,9 @@ def _max_step_rating_solved(db: Session, duel: Duel, user_id: str) -> int:
     )
     if not parts:
         return 0
-    is_host = parts[0].user_id == user_id
+    from app.services.duel_roles import is_duel_host
+
+    is_host = is_duel_host(duel, user_id)
     steps = db.query(DuelStep).filter(DuelStep.duel_id == duel.id).all()
     ratings = [
         s.rating

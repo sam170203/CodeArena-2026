@@ -34,6 +34,7 @@ interface State {
   } | null;
   forfeitInFlight: boolean;
   load: (duelId: string) => Promise<void>;
+  sync: (duelId: string) => Promise<void>;
   connect: (duelId: string) => void;
   disconnect: () => void;
   reset: () => void;
@@ -51,6 +52,36 @@ export const useDuel = create<State>((set, get) => ({
   heartbeatTimer: null,
   complete: null,
   forfeitInFlight: false,
+
+  async sync(duelId) {
+    try {
+      const { data } = await api.post<{ state: Duel }>(`/duel/${duelId}/sync`);
+      if (data?.state) {
+        set((s) => {
+          const prev = s.duel;
+          if (!prev) return { duel: data.state };
+          return {
+            duel: {
+              ...data.state,
+              host: {
+                ...data.state.host,
+                last_verdict: prev.host?.last_verdict ?? null,
+              },
+              opponent: data.state.opponent
+                ? {
+                    ...data.state.opponent,
+                    last_verdict: prev.opponent?.last_verdict ?? null,
+                  }
+                : null,
+            },
+          };
+        });
+      }
+    } catch {
+      // fall back to plain state fetch
+      await get().load(duelId);
+    }
+  },
 
   async load(duelId) {
     const { data } = await api.get<Duel>(`/duel/${duelId}/state`);
@@ -85,8 +116,9 @@ export const useDuel = create<State>((set, get) => ({
       }
       if (ev.type === "verdict" && d) {
         const next = structuredClone(d);
+        const isHostEvent = next.host?.user_id === ev.payload.user_id;
         const target =
-          next.host?.user_id === ev.payload.user_id
+          isHostEvent
             ? next.host
             : next.opponent && next.opponent.user_id === ev.payload.user_id
             ? next.opponent
@@ -97,6 +129,18 @@ export const useDuel = create<State>((set, get) => ({
             testset: ev.payload.testset,
             submission_id: ev.payload.submission_id,
           };
+        }
+        if (ev.payload.verdict === "AC") {
+          const step = next.steps.find(
+            (s) => s.step_index === ev.payload.step_index
+          );
+          if (step) {
+            if (isHostEvent) step.host_status = "solved";
+            else step.opponent_status = "solved";
+          }
+          if (target && target.current_step === ev.payload.step_index) {
+            target.current_step = ev.payload.step_index + 1;
+          }
         }
         const username = target?.username ?? ev.payload.user_id.slice(0, 6);
         set({
@@ -194,8 +238,8 @@ export const useDuel = create<State>((set, get) => ({
     const refresh = setInterval(() => {
       const c = get().complete;
       if (c) return; // duel already over, stop polling
-      get().load(duelId).catch(() => {});
-    }, 10_000);
+      get().sync(duelId).catch(() => {});
+    }, 5_000);
 
     set({ heartbeatTimer: heartbeat, refreshTimer: refresh });
   },

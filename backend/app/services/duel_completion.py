@@ -10,6 +10,7 @@ from app.models import Duel, DuelParticipant, DuelStep, EloHistory, ReplayEvent,
 from app.services.elo import elo_delta, apply_delta, tier_for_elo
 from app.services.streak import tick_streak
 from app.services.quests import evaluate_after_duel
+from app.services.duel_roles import host_and_opponent, is_duel_host
 from app.services.ws_hub import hub
 
 log = logging.getLogger("duel_completion")
@@ -29,7 +30,7 @@ def _steps_solved(db: Session, duel: Duel, user_id: str) -> int:
     parts = _participants(db, duel)
     if not parts:
         return 0
-    is_host = parts[0].user_id == user_id
+    is_host = is_duel_host(duel, user_id)
     return sum(
         1
         for s in rows
@@ -45,8 +46,11 @@ async def complete_duel(
         log.warning("complete_duel called with %d participants", len(parts))
         return
 
-    host_user = db.query(User).filter(User.id == parts[0].user_id).first()
-    opp_user = db.query(User).filter(User.id == parts[1].user_id).first()
+    host_part, opp_part = host_and_opponent(duel, parts)
+    if not host_part or not opp_part:
+        return
+    host_user = db.query(User).filter(User.id == host_part.user_id).first()
+    opp_user = db.query(User).filter(User.id == opp_part.user_id).first()
     if not host_user or not opp_user:
         return
 
