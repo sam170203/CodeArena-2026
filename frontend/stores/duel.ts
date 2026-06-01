@@ -233,8 +233,7 @@ export const useDuel = create<State>((set, get) => ({
     }, 25_000);
 
     // ───── Periodic state refresh ─────
-    // If a WS event is ever missed (network blip, server hiccup, anything),
-    // re-fetching the duel state every 10s self-heals. Cheap GET, no harm.
+    // If a WS event is ever missed, POST /sync re-fetches CF + duel state.
     const refresh = setInterval(() => {
       const c = get().complete;
       if (c) return; // duel already over, stop polling
