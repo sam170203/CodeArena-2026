@@ -45,11 +45,26 @@ export type DuelEvent =
       payload: {
         winner_id: string | null;
         elo_changes: Record<string, EloChange>;
+        promotion_for?: string | null;
+        new_tier?: string | null;
+        demotion_for?: string | null;
       };
     }
   | {
       type: "opponent_disconnected";
       payload: { user_id: string; reconnect_grace_ms: number };
     }
+  | {
+      type: "emote";
+      payload: { user_id: string; glyph: EmoteGlyph; sent_at: number };
+    }
   | { type: "system"; payload: { message: string } }
   | { type: "pong" };
+
+export type EmoteGlyph =
+  | "gg"
+  | "salt"
+  | "thinking"
+  | "coffee"
+  | "fire"
+  | "exclaim";

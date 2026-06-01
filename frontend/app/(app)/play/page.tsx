@@ -44,7 +44,7 @@ export default function PlayPage() {
         </Card>
       )}
 
-      <section className="grid grid-cols-[1fr_380px] gap-6">
+      <section className="grid grid-cols-1 md:grid-cols-[1fr_380px] gap-6">
         <HeroBattleCard onBattle={onBattle} />
         <ProfileMicroCard />
       </section>
@@ -56,7 +56,7 @@ export default function PlayPage() {
         <ModesGrid />
       </section>
 
-      <section className="grid grid-cols-[1fr_360px] gap-6">
+      <section className="grid grid-cols-1 md:grid-cols-[1fr_360px] gap-6">
         <RecentDuelsPanel />
         <QuestsPanel compact />
       </section>

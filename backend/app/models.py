@@ -303,3 +303,70 @@ class ReplayEvent(Base):
     event_type = Column(String(32), nullable=False)
     payload_json = Column(Text, nullable=False, default="{}")
     created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class CosmeticUnlock(Base):
+    __tablename__ = "cosmetic_unlocks"
+    __table_args__ = (
+        UniqueConstraint("user_id", "axis", "key", name="uq_cosmetic_unlock"),
+    )
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    user_id = Column(String(36), ForeignKey("users.id"), nullable=False, index=True)
+    axis = Column(String(16), nullable=False)  # banner | glyph
+    key = Column(String(32), nullable=False)
+    source = Column(String(32), nullable=True)  # tier_promo | quest | default
+    unlocked_at = Column(DateTime, default=datetime.utcnow)
+
+
+class EquippedCosmetic(Base):
+    __tablename__ = "equipped_cosmetics"
+
+    user_id = Column(String(36), ForeignKey("users.id"), primary_key=True)
+    banner_key = Column(String(32), default="default", nullable=False)
+    glyph_key = Column(String(32), default="default", nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class Deck(Base):
+    __tablename__ = "decks"
+
+    user_id = Column(String(36), ForeignKey("users.id"), primary_key=True)
+    tags_json = Column(Text, default="[]", nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class FriendRoom(Base):
+    __tablename__ = "friend_rooms"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    code = Column(String(8), unique=True, nullable=False, index=True)
+    host_id = Column(String(36), ForeignKey("users.id"), nullable=False, index=True)
+    rating_preset = Column(String(16), default="medium", nullable=False)  # chill | medium | hard
+    deck_tags_json = Column(Text, default="[]", nullable=False)
+    duel_id = Column(String(36), nullable=True)  # populated when started
+    status = Column(String(16), default="waiting", nullable=False)  # waiting | started | cancelled
+    created_at = Column(DateTime, default=datetime.utcnow)
+    expires_at = Column(DateTime, nullable=True)
+
+
+class AsyncChallenge(Base):
+    __tablename__ = "async_challenges"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    sender_id = Column(String(36), ForeignKey("users.id"), nullable=False, index=True)
+    recipient_id = Column(String(36), ForeignKey("users.id"), nullable=False, index=True)
+    status = Column(String(24), default="sent", nullable=False)
+    # sent | sender_done | accepted | complete | expired
+    problem_seed_json = Column(Text, nullable=False, default="[]")
+    sender_steps_cleared = Column(Integer, default=0, nullable=False)
+    recipient_steps_cleared = Column(Integer, default=0, nullable=False)
+    sender_duration_s = Column(Integer, default=0, nullable=False)
+    recipient_duration_s = Column(Integer, default=0, nullable=False)
+    sender_started_at = Column(DateTime, nullable=True)
+    sender_finished_at = Column(DateTime, nullable=True)
+    recipient_started_at = Column(DateTime, nullable=True)
+    recipient_finished_at = Column(DateTime, nullable=True)
+    winner_id = Column(String(36), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    expires_at = Column(DateTime, nullable=True)

@@ -28,9 +28,17 @@ export const useAuth = create<State>((set, get) => ({
       hydrated: true,
     });
     if (token) {
+      // Validate the cached token. If the user no longer exists (e.g. after
+      // a DB reset) or the token is invalid, the API interceptor will clear
+      // storage + redirect. We also defensively wipe local state here so
+      // React renders never use a stale user.
       get()
         .refresh()
-        .catch(() => {});
+        .catch(() => {
+          localStorage.removeItem("ca_token");
+          localStorage.removeItem("ca_user");
+          set({ user: null, token: null });
+        });
     }
   },
 

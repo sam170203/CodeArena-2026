@@ -1,6 +1,7 @@
 import asyncio
 import json
 import os
+from datetime import datetime
 
 from fastapi import Depends, FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
@@ -22,9 +23,27 @@ from .api.routes.matchmaking import router as matchmaking_router
 from .api.routes.cf import router as cf_router
 from .api.routes.leaderboard import router as leaderboard_router
 from .api.routes.quests import router as quests_router
+from .api.routes.replay import router as replay_router
+from .api.routes.friend_duel import router as friend_duel_router
+from .api.routes.open_lobby import router as open_lobby_router
+from .api.routes.deck import router as deck_router
+from .api.routes.async_challenge import router as async_challenge_router
+from .api.routes.cosmetics import router as cosmetics_router
 
 # ================= DB INIT =================
 Base.metadata.create_all(bind=engine)
+
+
+def iso_utc(dt):
+    """Serialize a datetime as an ISO-8601 string with explicit UTC ('Z')
+    suffix. Backend uses datetime.utcnow() which is naive; JS interprets
+    naive ISO as local time, breaking timers. Always include 'Z'."""
+    if dt is None:
+        return None
+    s = dt.isoformat()
+    if s.endswith("Z") or "+" in s[10:] or s[10:].count("-") > 0:
+        return s
+    return s + "Z"
 
 # ================= APP INIT =================
 app = FastAPI(
@@ -34,19 +53,34 @@ app = FastAPI(
 )
 
 # ================= CORS =================
-allowed_origins = os.getenv(
-    "CORS_ORIGINS",
-    ",".join([
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-        "https://code-arena-ievp.vercel.app",
-        "https://code-arena-wine.vercel.app",
-    ]),
-).split(",")
+# Sources of allowed origins (merged):
+#   1. CORS_ORIGINS env var — comma-separated list (manual overrides / extras).
+#   2. FRONTEND_URL env var — single primary URL set on Render after the
+#      frontend Vercel deploy is known.
+#   3. Hard-coded local dev + the known Vercel deployments.
+_default_origins = [
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "https://code-arena-ievp.vercel.app",
+    "https://code-arena-wine.vercel.app",
+]
+
+_explicit_origins = [
+    o.strip() for o in os.getenv("CORS_ORIGINS", "").split(",") if o.strip()
+]
+_frontend_url = os.getenv("FRONTEND_URL", "").strip()
+if _frontend_url:
+    _explicit_origins.append(_frontend_url)
+
+# Allow any *.vercel.app preview URL by regex (each PR gets a new subdomain).
+_allow_origin_regex = r"https://.*\.vercel\.app$"
+
+allowed_origins = list(dict.fromkeys(_default_origins + _explicit_origins))
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[o.strip() for o in allowed_origins if o.strip()],
+    allow_origins=allowed_origins,
+    allow_origin_regex=_allow_origin_regex,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -60,6 +94,12 @@ app.include_router(matchmaking_router)
 app.include_router(cf_router)
 app.include_router(leaderboard_router)
 app.include_router(quests_router)
+app.include_router(replay_router)
+app.include_router(friend_duel_router)
+app.include_router(open_lobby_router)
+app.include_router(deck_router)
+app.include_router(async_challenge_router)
+app.include_router(cosmetics_router)
 
 
 # ================= BASIC ENDPOINTS =================
@@ -195,7 +235,7 @@ def _serialize_duel_state(db: Session, duel_id: str):
             "tier": tier_for_elo(elo).key,
             "current_step": current_step,
             "last_verdict": None,
-            "joined_at": row.joined_at.isoformat() if row.joined_at else None,
+            "joined_at": iso_utc(row.joined_at),
         }
 
     host_payload = _participant_payload(participant_rows[0], True) if len(participant_rows) >= 1 else None
@@ -208,8 +248,8 @@ def _serialize_duel_state(db: Session, duel_id: str):
         "host": host_payload,
         "opponent": opp_payload,
         "steps": steps,
-        "started_at": duel.started_at.isoformat() if duel.started_at else None,
-        "finished_at": duel.finished_at.isoformat() if duel.finished_at else None,
+        "started_at": iso_utc(duel.started_at),
+        "finished_at": iso_utc(duel.finished_at),
         "time_cap_seconds": duel.time_cap_seconds,
         "winner_id": duel.winner_id,
     }
@@ -225,6 +265,36 @@ def get_duel_state(duel_id: str, db: Session = Depends(get_db)):
 
 # ================= profile + history endpoints =================
 from .api.routes.auth import _get_current_user  # noqa: E402
+from .services.duel_completion import complete_duel  # noqa: E402
+
+
+@app.post("/duel/{duel_id}/forfeit")
+async def forfeit_duel(
+    duel_id: str,
+    current_user: User = Depends(_get_current_user),
+    db: Session = Depends(get_db),
+):
+    duel = db.query(Duel).filter(Duel.id == duel_id).first()
+    if not duel:
+        raise HTTPException(status_code=404, detail="Duel not found")
+    if duel.status != "active":
+        raise HTTPException(status_code=400, detail="Duel is not active")
+
+    parts = (
+        db.query(DuelParticipant)
+        .filter(DuelParticipant.duel_id == duel.id)
+        .order_by(DuelParticipant.joined_at.asc())
+        .all()
+    )
+    if not any(p.user_id == current_user.id for p in parts):
+        raise HTTPException(status_code=403, detail="Not a participant")
+
+    # Winner is the other player. If somehow no other (shouldn't happen),
+    # mark as draw.
+    other = next((p for p in parts if p.user_id != current_user.id), None)
+    winner_id = other.user_id if other else None
+    await complete_duel(db, duel, winner_user_id=winner_id)
+    return {"ok": True, "winner_id": winner_id}
 
 
 @app.get("/profile/me/elo-history")
@@ -247,7 +317,7 @@ def my_elo_history(
             "elo_after": h.elo_after,
             "delta": h.delta,
             "result": h.result,
-            "created_at": h.created_at.isoformat() if h.created_at else None,
+            "created_at": iso_utc(h.created_at),
         }
         for h in rows
     ]
@@ -359,6 +429,8 @@ def recent_duels(
 # ================= WEBSOCKETS =================
 @app.websocket("/ws/duel/{duel_id}")
 async def duel_ws(websocket: WebSocket, duel_id: str):
+    from .services.emote import check_and_record, valid_glyph
+
     await websocket.accept()
     await hub.subscribe("duel", duel_id, websocket)
     db = next(get_db())
@@ -369,6 +441,26 @@ async def duel_ws(websocket: WebSocket, duel_id: str):
             msg = await websocket.receive_text()
             if msg == "ping":
                 await websocket.send_json({"type": "pong"})
+                continue
+            try:
+                payload = json.loads(msg)
+            except Exception:
+                continue
+            if payload.get("type") == "emote":
+                user_id = payload.get("user_id")
+                glyph = payload.get("glyph")
+                if not user_id or not glyph or not valid_glyph(glyph):
+                    continue
+                if not check_and_record(user_id):
+                    await websocket.send_json({
+                        "type": "system",
+                        "payload": {"message": "emote rate limit"},
+                    })
+                    continue
+                await hub.broadcast("duel", duel_id, {
+                    "type": "emote",
+                    "payload": {"user_id": user_id, "glyph": glyph, "sent_at": __import__("time").time()},
+                })
     except WebSocketDisconnect:
         pass
     finally:
@@ -390,6 +482,22 @@ async def queue_ws(websocket: WebSocket, user_id: str):
         pass
     finally:
         await hub.unsubscribe("queue", user_id, websocket)
+
+
+@app.websocket("/ws/user/{user_id}")
+async def user_ws(websocket: WebSocket, user_id: str):
+    await websocket.accept()
+    await hub.subscribe("user", user_id, websocket)
+    try:
+        await websocket.send_json({"type": "connected", "payload": {"user_id": user_id}})
+        while True:
+            msg = await websocket.receive_text()
+            if msg == "ping":
+                await websocket.send_json({"type": "pong"})
+    except WebSocketDisconnect:
+        pass
+    finally:
+        await hub.unsubscribe("user", user_id, websocket)
 
 
 # ================= BACKGROUND WORKERS =================

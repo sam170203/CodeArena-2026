@@ -9,7 +9,7 @@ from datetime import datetime
 from sqlalchemy.orm import Session
 
 from app.db import get_db
-from app.models import Duel, DuelParticipant, DuelStep, MatchmakingQueueEntry, User
+from app.models import Deck, Duel, DuelParticipant, DuelStep, MatchmakingQueueEntry, User
 from app.services.problem_picker import pick_ladder
 from app.services.ws_hub import hub
 from app.services.elo import tier_for_elo
@@ -55,6 +55,7 @@ def _start_duel(db: Session, host: MatchmakingQueueEntry, opp: MatchmakingQueueE
 
     base_elo = min(host_user.elo or 1200, opp_user.elo or 1200)
 
+    # Per-queue deck overrides take priority; otherwise pull saved decks.
     deck: list[str] = []
     try:
         if host.deck_tags_json:
@@ -63,6 +64,15 @@ def _start_duel(db: Session, host: MatchmakingQueueEntry, opp: MatchmakingQueueE
             deck += json.loads(opp.deck_tags_json) or []
     except Exception:
         deck = []
+
+    if not deck:
+        for uid in (host.user_id, opp.user_id):
+            saved = db.query(Deck).filter(Deck.user_id == uid).first()
+            if saved and saved.tags_json:
+                try:
+                    deck += json.loads(saved.tags_json) or []
+                except Exception:
+                    pass
 
     problems = pick_ladder(base_elo, deck_tags=deck, rng=random.Random())
 

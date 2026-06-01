@@ -8,19 +8,94 @@
 
 ## TL;DR
 
-- ✅ **Spec** complete in `docs/superpowers/specs/2026-05-22-codeforces-duel-arcade-design.md`
-- ✅ **Phase 1 plan** complete + fully executed in `docs/superpowers/plans/2026-05-22-codeforces-duel-phase-1.md`
-- ✅ **Phase 2 plan** complete, **~50% executed** in `docs/superpowers/plans/2026-05-22-codeforces-duel-phase-2.md`
-- ⏳ **Phase 2 remaining:** Profile sparkline + duels list, public profile page, promotion ceremony overlay, OG image, final smoke test
-- ⏳ **Phase 3** not started
+- ✅ **Spec** complete
+- ✅ **Phase 1** — Core ranked duel loop (25 tasks)
+- ✅ **Phase 2** — Status + retention (T1–T11)
+- ✅ **Phase 3** — Personality + breadth (T1–T8): emotes, friend duel, open lobby, decks UI, async challenge, cosmetics, spectate, anti-abuse
+- ✅ **Deployment configs** — `render.yaml` (backend + Postgres), `vercel.json` (frontend), `DEPLOYMENT.md` step-by-step
+
+## Deployment quickstart
+
+**Currently deployed at:** `https://code-arena-wine.vercel.app` is stuck on
+pre-Phase-3 code AND its frontend bundle was built with `NEXT_PUBLIC_API_BASE_URL=http://localhost:8000`,
+so registration tries to POST to the visitor's own machine. To fix:
+
+1. Deploy backend on Render — see [DEPLOYMENT.md](DEPLOYMENT.md). The
+   `render.yaml` blueprint sets up the web service + Postgres in one click.
+2. Add Vercel env vars: `NEXT_PUBLIC_API_BASE_URL` and `NEXT_PUBLIC_WS_BASE_URL`
+   pointing to the Render URL.
+3. Redeploy Vercel.
+
+After that, the live site has the full Phase 1+2+3 surface.
 
 ## Verification snapshot (last green build)
 
-- `npm run build` (frontend) — **passed**, 10 routes compile clean
 - `npx tsc --noEmit` — **0 errors**
-- `npm test` — **22 tests passing** (Vitest)
-- `pytest` — **20 tests passing** (9 elo + 5 problem picker + 6 streak)
-- Backend boots cleanly; `/health` and `/leaderboard` return 200
+- `npm run build` — **18 routes** compile clean
+- `npm test` — **22 Vitest tests passing**
+- `pytest` — **20 backend tests passing**
+- Backend boots cleanly; **52 routes registered**; auth-guarded endpoints return 401, public endpoints 200
+
+---
+
+## End-to-end feature surface
+
+### Phase 1 — core duel loop
+- Auth (register, login, JWT, CF handle linking with live validation)
+- Persistent rail + topbar with TierBadge user pill
+- `/play` dashboard: hero, profile micro card, 4 mode tiles, recent duels, quests
+- Quick Match (ELO-windowed pairing) → arena entrance → live duel HUD
+- Live HUD: CRT scanlines, ladder rail, opponent panels, problem card with CF deep link, real-time WS verdict updates from the CF API poller
+- Win/lose ceremony with ELO number-ticker
+
+### Phase 2 — status + retention
+- TierBadge integrated across pill, micro card, profile, leaderboard, replay
+- Timezone-aware streak system with shield logic (visible flame badge on dashboard)
+- Daily (3) + weekly (1) quests with 6 rule types, claim flow, XP rewards
+- Promotion ceremony (full-screen overlay) + demotion toast
+- Post-duel replay (`/duel/[id]/replay`) with ResultCard + ReplayTimeline
+- OG share image (1200×630, edge runtime) at `/duel/[id]/replay/opengraph-image`
+- Profile with EloSparkline + RecentDuelsList linking to replays
+- Public profile at `/u/[handle]` (unauthed, sharable)
+
+### Phase 3 — personality + breadth
+- **Emotes** in-duel: EmoteTray (6 glyphs, 4/min/user rate limit) + FloatingEmotes animation layer
+- **Friend duel** at `/play/friend`: create private room (3 rating presets: chill/medium/hard), 6-char shareable code, 15-min expiry; opponent enters code to join; host gets WS push and auto-redirect
+- **Open lobby** at `/play/lobby`: live list of open friend rooms + active duels, refreshes every 5s
+- **Algorithm decks** UI in settings: pick up to 3 CF tags; matchmaker honors them when problem-picking
+- **Cosmetics**: 6 banners + 6 avatar glyphs, auto-unlocked by tier (Silver, Gold, Platinum, Diamond, Master), equipped from settings
+- **Async challenge** at `/play/async`: send to friend by username, see 5-problem seed, self-report results, winner resolved by steps then duration
+- **Spectate mode** at `/duel/[id]/spectate`: read-only HUD, sees floating emotes
+- **Anti-abuse**: smurf check (cap ELO gain to +5 when CF rating >>internal ELO and opp 300+ weaker); matchmaking enqueue rate limit (3 per 120s, returns 429)
+
+---
+
+## Routes (18 frontend pages · 52 backend endpoints)
+
+**Frontend pages:**
+- Marketing: `/`, `/leaderboard`, `/u/[handle]`
+- Auth: `/login`, `/register`
+- App: `/play`, `/play/queue`, `/play/friend`, `/play/lobby`, `/play/async`, `/profile`, `/profile/settings`, `/quests`
+- Duel: `/duel/[id]`, `/duel/[id]/spectate`, `/duel/[id]/replay`, `/duel/[id]/replay/opengraph-image`
+
+**Backend routers:**
+- `/auth/*` — register, login, me (incl. streak), cf-handle, sync-cf
+- `/duel/*` — legacy create/join/start, `/{id}/state`, `/recent/me`
+- `/matchmaking/enqueue` (rate-limited), `/matchmaking/queue/{id}` DELETE
+- `/cf/handle/{h}/validate`, `/cf/problems`
+- `/leaderboard`, `/quests/today`, `/quests/{id}/claim`
+- `/replay/{id}` (public)
+- `/profile/me/elo-history`, `/profile/by-handle/{username}` (public)
+- `/friend-duel` POST/DELETE, `/by-code/{code}`, `/join`
+- `/lobby/active-duels`, `/lobby/open-rooms` (public)
+- `/deck/me` GET/PUT
+- `/cosmetics/me`, `/cosmetics/equip`
+- `/async-challenge` POST, `/inbox`, `/{id}/accept`, `/{id}/submit`
+
+**WebSocket channels:**
+- `/ws/duel/{duel_id}` — bidirectional: receives `emote` (rate-limited), broadcasts `state`, `verdict`, `step_advance`, `duel_complete`, `emote`
+- `/ws/queue/{user_id}` — server pushes `queue_tick`, `match_found`
+- `/ws/user/{user_id}` — server pushes `friend_duel_started`
 
 ---
 
@@ -28,37 +103,42 @@
 
 ```
 CodeArena-2026/
-├── backend/                  ← FastAPI + SQLAlchemy + SQLite
+├── backend/app/
+│   ├── api/routes/
+│   │   ├── auth.py, duel.py, practice.py
+│   │   ├── matchmaking.py, cf.py, leaderboard.py
+│   │   ├── quests.py, replay.py
+│   │   ├── friend_duel.py, open_lobby.py, deck.py        ← Phase 3
+│   │   └── async_challenge.py, cosmetics.py              ← Phase 3
+│   ├── services/
+│   │   ├── codeforces.py, elo.py, problem_picker.py
+│   │   ├── ws_hub.py, matchmaker.py, cf_poller.py
+│   │   ├── duel_completion.py (with smurf check)
+│   │   ├── streak.py, quests.py
+│   │   └── emote.py                                       ← Phase 3
+│   ├── main.py, models.py, schemas.py, db.py
+│   └── tests/services/                                    ← elo, problem_picker, streak
+├── frontend/
 │   ├── app/
-│   │   ├── api/routes/       ← auth, duel, practice, matchmaking, cf, leaderboard, quests
-│   │   ├── services/         ← codeforces, elo, problem_picker, ws_hub, matchmaker,
-│   │   │                       cf_poller, duel_completion, streak, quests
-│   │   ├── main.py           ← app + WS endpoints + serializers + workers
-│   │   ├── models.py         ← all tables (incl. Phase 2: Streak, Quest, QuestProgress, ReplayEvent)
-│   │   ├── schemas.py        ← Pydantic schemas (Optional, not `| None` — Python 3.9 compat)
-│   │   └── db.py
-│   ├── tests/services/       ← pytest: elo, problem_picker, streak
-│   ├── conftest.py
-│   └── requirements.txt
-├── frontend/                 ← Next 16 App Router + TypeScript + Tailwind v4
-│   ├── app/
-│   │   ├── (marketing)/      ← /, /leaderboard, /u/[handle]  (← /u/[handle] NOT BUILT YET)
-│   │   ├── (app)/            ← auth-guarded: /play, /play/queue, /duel/[id], /profile,
-│   │   │                       /profile/settings, /quests
-│   │   ├── login/, register/
-│   │   └── layout.tsx, providers.tsx, globals.css
+│   │   ├── (marketing)/      ← /, /leaderboard, /u/[handle]
+│   │   ├── (app)/
+│   │   │   ├── play/         ← page + queue/, friend/, lobby/, async/ (Phase 3)
+│   │   │   ├── duel/[id]/    ← page + replay/ + spectate/ (Phase 3)
+│   │   │   ├── profile/, profile/settings/, quests/
+│   │   └── login/, register/
 │   ├── components/
-│   │   ├── primitives/       ← Button, Card, NeonText, StatTile, VerdictPill, LiveIndicator, ScanlineOverlay
+│   │   ├── primitives/       ← Button, Card, NeonText, etc.
 │   │   ├── layout/           ← AppShell, Rail, Topbar, UserPill
-│   │   ├── arena/            ← LadderRail, OpponentPanel, ProblemCard, DuelTimer, VictoryOverlay, NumberTicker, ArenaEntrance
+│   │   ├── arena/            ← + EmoteTray, FloatingEmotes (Phase 3)
 │   │   ├── cosmetic/         ← TierBadge
-│   │   ├── dashboard/        ← HeroBattleCard, ProfileMicroCard, ModesGrid, RecentDuelsPanel, QuestsPanel, StreakBadge
-│   │   └── profile/          ← EloSparkline, RecentDuelsList  (← BOTH NOT BUILT YET — profile page imports them)
+│   │   ├── dashboard/        ← Hero, ProfileMicroCard, ModesGrid, etc.
+│   │   ├── profile/          ← + DeckEditor, CosmeticsEditor (Phase 3)
+│   │   └── replay/           ← ReplayTimeline, ResultCard
 │   ├── lib/                  ← api, ws, cn, fonts, elo, tier, streak
-│   ├── stores/               ← auth, queue, duel  (Zustand)
-│   ├── types/                ← user, duel, ws, cf, quest
-│   ├── tests/lib/            ← Vitest: elo, tier
-│   └── _legacy/              ← old Pages-Router code, preserved for reference
+│   ├── stores/               ← auth, queue, duel (with floatingEmotes, sendEmote)
+│   ├── types/                ← user, duel, ws (EmoteGlyph), cf, quest, replay
+│   ├── tests/lib/
+│   └── _legacy/              ← old Pages-Router code preserved
 └── docs/superpowers/
     ├── specs/2026-05-22-codeforces-duel-arcade-design.md
     └── plans/
@@ -68,205 +148,55 @@ CodeArena-2026/
 
 ---
 
-## Phase 1 — DONE ✅ (all 25 tasks)
+## Known follow-ups (non-blocking)
 
-End-to-end ranked duel loop:
-
-- App Router + TypeScript migration of placeholder frontend (legacy code backed up to `frontend/_legacy/`)
-- Arcade Neon visual system (palette, type, components, motion)
-- Auth flow (login/register/JWT/CF handle linking with live validation)
-- Persistent rail + topbar shell
-- `/play` dashboard (hero, profile micro, 4 mode tiles, recent duels, quests panel)
-- Quick Match matchmaking (`/matchmaking/enqueue`, ±150 ELO window expanding to ±500, WS `match_found`)
-- `/play/queue` searching overlay → arena entrance animation → `/duel/[id]`
-- Live duel HUD: ladder rail, opponent panels, problem card with CF deep link, timer with CRT scanlines
-- Codeforces verdict poller (every 3s per active duel, per-handle rate limiting, backoff)
-- WS events: `state`, `verdict`, `step_advance`, `duel_complete`, `opponent_disconnected`
-- Win/lose ceremony with ELO number-ticker
-- Basic leaderboard `/leaderboard`
-- Profile `/profile` + settings `/profile/settings`
-- Backend tables: `DuelStep`, `MatchmakingQueueEntry`, `EloHistory` + `User.elo`/`timezone` + `Duel.format`/`time_cap_seconds`
-- Tests: 22 frontend Vitest + 14 backend pytest, all passing
+1. **Quest evaluator unit tests** not written. Evaluators work but uncovered.
+2. **No Alembic migration.** Relies on `Base.metadata.create_all()` at startup. **Delete `backend/codearena.db`** before first boot if columns changed.
+3. **Async challenge results are self-reported.** Future: run the CF poller against the recipient's handle during their 90-min window to auto-fill `steps_cleared`.
+4. **Friend rooms expire after 15 min** in the waiting state silently — host gets no notification.
+5. **No avatar glyph rendering yet on the user pill** — the `EquippedCosmetic.glyph_key` is saved but the pill always shows the first letter of the username. Easy follow-up: thread the equipped glyph through `/auth/me` and render in `UserPill`.
 
 ---
 
-## Phase 2 — IN PROGRESS (~50% done)
+## Caveats for next session
 
-### ✅ Done
-
-**T1 — Tier badges** — `components/cosmetic/TierBadge.tsx` with 7-tier gradient + 3-division support; integrated into `UserPill`, `ProfileMicroCard`, `LeaderboardPage`, `ProfilePage`.
-
-**T2 — Streak math + service + tests**
-- `backend/app/services/streak.py` (timezone-aware date math, shield logic)
-- `backend/tests/services/test_streak.py` — 6 tests passing
-- `Streak` table added to `models.py`
-- `frontend/lib/streak.ts` (flame tone helpers)
-
-**T3 — Streak UI + /auth/me expansion + wired into completion**
-- `components/dashboard/StreakBadge.tsx` rendered inside `ProfileMicroCard`
-- `/auth/me` now returns nested `streak: { current_count, longest_count, shields_remaining }`
-- `User.streak` type added; `frontend/types/user.ts` updated
-- `duel_completion.py` calls `tick_streak()` for both players after ELO update
-
-**T4 — Quest models + service + rule evaluators**
-- `Quest` + `QuestProgress` tables in `models.py`
-- `backend/app/services/quests.py` — 10 seed templates, `roll_today_for()`, `evaluate_after_duel()`
-- 6 rule types: `wins`, `clear_rating`, `win_no_wa`, `win_under_seconds`, `win_vs_higher_elo`, `streak_reach`
-- Stable user/date-hashed quest selection (3 daily + 1 weekly)
-- Seeded on app startup (idempotent by slug)
-- Quest evaluation wired into `duel_completion.py` after streak tick
-- ⚠️ Tests for quest evaluators **not written yet** (was a planned step)
-
-**T5 — Quests routes + panel + page**
-- `backend/app/api/routes/quests.py` — `GET /quests/today`, `POST /quests/{id}/claim`
-- `components/dashboard/QuestsPanel.tsx` — full panel with progress bars + claim button
-- `app/(app)/quests/page.tsx` — full-width quests view
-- `QuestsPanelStub` replaced with `QuestsPanel` on dashboard
-- Quest router mounted in `main.py`
-
-**T6 (partial) — ReplayEvent ingest started**
-- `ReplayEvent` table added to `models.py`
-- `cf_poller.py` updated to write `verdict` and `step_advance` rows
-- `duel_completion.py` updates `duel.status` etc. but does NOT yet write a `duel_complete` row to `ReplayEvent` — **TODO**
-
-**Bonus — Tier promotion detection**
-- `duel_completion.py` already computes `promotion_for` and `new_tier` and broadcasts them in `duel_complete` WS payload (used by the not-yet-built PromotionCeremony component)
-
-**Bonus — Profile endpoints already added in `main.py`**
-- `GET /profile/me/elo-history` — returns last 50 EloHistory rows, ascending
-- `GET /profile/by-handle/{username}` — public profile data (used by /u/[handle] page when built)
-
-### ⏳ Remaining
-
-**T6 (finish) — ReplayEvent storage**
-- Add `duel_complete` row write in `duel_completion.py` (after streak/quest blocks):
-  ```python
-  from app.models import ReplayEvent
-  db.add(ReplayEvent(
-      duel_id=duel.id,
-      ts_offset_ms=int((datetime.utcnow() - duel.started_at).total_seconds() * 1000) if duel.started_at else 0,
-      user_id=None,
-      event_type="duel_complete",
-      payload_json=json.dumps({
-          "winner_id": winner_user_id,
-          "elo_changes": {...},  # same as WS payload
-          "promotion_for": promotion_for,
-          "new_tier": new_tier,
-      }),
-  ))
-  db.commit()
-  ```
-
-**T7 — Replay route + timeline UI + share card**
-- Backend: create `backend/app/api/routes/replay.py` with `GET /replay/{duel_id}` (public, no auth) returning `{ duel: {...}, events: [...], steps: [...], participants: [...] }`. Mount in `main.py`.
-- Frontend types: `frontend/types/replay.ts`
-- Frontend components: `frontend/components/replay/ReplayTimeline.tsx` (vertical timeline, alternating cols per player, verdict pills with relative timestamps, step-advance markers), `frontend/components/replay/ResultCard.tsx` (shareable summary card with copy-link).
-- Frontend page: `frontend/app/(app)/duel/[id]/replay/page.tsx`.
-- Update `VictoryOverlay` to add a "View replay" link → `/duel/[id]/replay`.
-
-**T8 — Profile expansion: EloSparkline + RecentDuelsList**
-- ⚠️ **CRITICAL: ProfilePage already imports these — frontend won't compile until they exist.** Create:
-  - `frontend/components/profile/EloSparkline.tsx` — SVG line chart, ~600×120, polyline of ELO points from `GET /profile/me/elo-history`, tier-band background guides (color stripes at 1000/1300/1600/1900/2200/2500), TanStack Query `["my-elo-history"]`.
-  - `frontend/components/profile/RecentDuelsList.tsx` — list view (more rows + click-through to `/duel/[id]/replay`) reusing the `/duel/recent/me` endpoint.
-
-**T9 — Public profile `/u/[handle]`**
-- `frontend/app/(marketing)/u/[handle]/page.tsx`. Reads `GET /profile/by-handle/{handle}`. Hero with `TierBadge size="lg"`, stat grid, ELO sparkline, recent duels list. No auth required. Add `<Link href={`/u/${username}`}>` from leaderboard rows (already done) and from profile pages.
-
-**T10 — Promotion ceremony overlay**
-- `frontend/components/arena/PromotionCeremony.tsx` — full-screen overlay (z-60 above VictoryOverlay's z-50): old tier badge dissolves into particles, new badge assembles with a glow + scale-in, tier name in display type, ~2.5s, then resolves (callback to show VictoryOverlay next).
-- In `frontend/app/(app)/duel/[id]/page.tsx`, the duel store's `complete` already exposes `winnerId` and `eloChanges`. **You'll need to add `promotion_for` and `new_tier` to the duel store too** (`stores/duel.ts` — extend the `complete` shape, the WS payload already carries these). Then in the duel page, conditionally render `<PromotionCeremony />` first, then `<VictoryOverlay />` once promotion finishes.
-- Demotion: a small purple toast "tier dropped" — no ceremony. Easiest: a 3-second floating div top-right.
-
-**T11 — OG share image for replay**
-- `frontend/app/(app)/duel/[id]/replay/opengraph-image.tsx` (Next 16 OG image route). Use `ImageResponse` from `next/og` to render 1200×630 with the result card layout. Fetches `GET /replay/{id}` server-side.
-
-**T12 — Wire-up + smoke**
-- `npm test` should still pass (22+)
-- `pytest` should still pass (20+, ideally +6-10 quest tests if you write them)
-- `npm run build` — clean
-- Manual test: complete a duel → quest panel updates → claim a quest → streak ticks → tier promotion (force by setting ELO to 999 in DB and winning) → ceremony plays → click "View replay" → timeline renders.
-
----
-
-## Phase 3 — NOT STARTED
-
-Per spec § 9:
-
-- In-duel emotes (WS + tray UI, server rate-limit)
-- Friend duel (private room codes, configurable rating curve)
-- Open lobby browser (`/play/lobby`)
-- Algorithm decks fully activated in problem picker (table writeable now, picker honors them, but UI for setting deck not built)
-- Cosmetics (banners, frames, glyphs, signature anims) + unlock UI
-- Async challenge end-to-end (`/play/async`)
-- Spectate mode (read-only `/ws/duel/{id}`)
-- Smurf-check tuning and anti-abuse hardening
-
-The dashboard mode tiles already link to `/play/friend`, `/play/lobby`, `/play/async` — they currently 404 by design. Implementing Phase 3 will create those routes.
-
----
-
-## Known caveats / gotchas for next session
-
-1. **Python 3.9 compat:** This machine has Python 3.9. The pre-existing `schemas.py` had `str | None` syntax which fails at import time. I converted `UserCreate.cf_handle` to `Optional[str]`. **If you grep for `| None` in any `.py` file, convert it too.** The `from __future__ import annotations` line at top of new files helps for type hints, but Pydantic resolves them and will still fail on `| None` at class creation time.
-
-2. **SQLite + new columns:** `Base.metadata.create_all()` runs at app startup. It creates **new tables** but **does NOT alter existing tables**. After adding columns to `User` / `Duel` (Phase 1), any **existing `codearena.db` file must be deleted** for the new columns to appear. The streak tests already handle this by `rm -f codearena.db` first. There is no Alembic migration generated — that was deferred.
-
-3. **Duel state route collision:** Existing `duel_router` has `GET /duel/{duel_id}` returning the OLD `DuelOut` shape. My new endpoint at `/duel/{duel_id}/state` (in `main.py`) returns the NEW serialized state. **Frontend duel store calls `/duel/${id}/state`** — do not change it back.
-
-4. **Tier promotion `new_tier` in WS payload:** Already emitted from `duel_completion.py`, but **`stores/duel.ts` does not yet read it into its `complete` field.** Extend the type `{ winnerId, eloChanges }` to `{ winnerId, eloChanges, promotion_for, new_tier }` and update the WS handler to set them.
-
-5. **TypeScript ProfilePage imports break the build right now.** `app/(app)/profile/page.tsx` currently imports `EloSparkline` and `RecentDuelsList` from `@/components/profile/*` — those files don't exist yet. **Build will fail until T8 is done.** Either create stub components first or revert the profile page to the pre-T8 version while finishing other tasks.
-
-6. **CF poller hits real Codeforces.** During heavy local dev it backs off. Don't be surprised by the "verdict sync paused" path.
-
-7. **Quest tests not written.** `tests/services/test_quests.py` doesn't exist. The rule evaluators in `services/quests.py` work but aren't covered. Easy follow-up if/when you write them.
-
-8. **Quest seeds depend on existing tables.** If you ever drop and re-create the DB, seeds re-insert on next app startup automatically (idempotent by slug).
+1. **Python 3.9** — pre-existing on this machine. New backend files use `Optional[X]` / `List[X]` explicitly rather than `X | None` / `list[X]` to avoid runtime errors at Pydantic class init.
+2. **SQLite + new columns** — `create_all` doesn't ALTER existing tables. Delete `codearena.db` if columns changed.
+3. **Existing `duel_router` owns `GET /duel/{id}`** — new endpoint serving frontend state is `/duel/{id}/state`. Frontend already calls that.
+4. **CF poller hits real Codeforces.** Backs off on errors.
 
 ---
 
 ## How to run
 
-**Backend:**
 ```bash
-cd backend
-python3 -m uvicorn app.main:app --reload --port 8000
-```
-
-**Frontend:**
-```bash
-cd frontend
-npm run dev
+cd backend && rm -f codearena.db && python3 -m uvicorn app.main:app --reload --port 8000
+cd frontend && npm run dev
 # http://localhost:3000
 ```
 
-**Tests:**
-```bash
-cd frontend && npm test       # Vitest
-cd backend && python3 -m pytest -v
-```
+## Tests + build
 
-**Full type + build check (frontend):**
 ```bash
-cd frontend
-npx tsc --noEmit
-npm run build
+cd backend  && python3 -m pytest -v
+cd frontend && npm test && npx tsc --noEmit && npm run build
 ```
 
 ---
 
-## Working notes for next session
+## Full smoke test recipe
 
-When you pick this up:
-
-1. **First, fix the build.** `frontend/app/(app)/profile/page.tsx` references components that don't exist. Either implement T8 first (EloSparkline + RecentDuelsList — quick to do) or comment out those two imports to unblock everything else.
-
-2. **Then finish T6** — single small change in `duel_completion.py` to write the `duel_complete` row.
-
-3. **T7 is the biggest remaining piece** — replay backend route + frontend timeline. Worth ~1 focused session.
-
-4. **T10 (promotion ceremony) is mostly UI** — backend already emits the data.
-
-5. **T11 (OG image) is small** — one file under `app/duel/[id]/replay/opengraph-image.tsx`.
-
-The spec file is the source of truth for what each feature should look/feel like — re-read the relevant section before building each piece.
+1. `rm -f backend/codearena.db` for a fresh DB
+2. Start backend + frontend in two terminals
+3. Register two accounts (use two browser profiles); link real CF handles
+4. **Quick Match** — both click "Enter arena" → match → duel → submit on CF → verdicts appear → victory ceremony
+5. **Emotes** — click "✦ EMOTE" during duel, pick one, opponent sees it float
+6. **Friend duel** — `/play/friend` → create medium room → copy code; other account joins by code → both in duel
+7. **Open lobby** — create a second friend room; other account opens `/play/lobby` → sees room + any live duels
+8. **Spectate** — click "Spectate" on a live duel from `/play/lobby` → read-only HUD
+9. **Decks** — `/profile/settings` → pick 3 tags → Save; next Quick Match problems prefer those tags
+10. **Cosmetics** — `/profile/settings` → banner/glyph swatches; click owned ones to equip
+11. **Async** — `/play/async` → send to other username → other accepts → both submit results → winner resolves
+12. **Replay** — finish a duel → "View replay" → timeline + share link
+13. **Public profile** — click any leaderboard row → `/u/<username>`
+14. **Promotion ceremony** — manually set ELO to 999 in DB; win a duel → ceremony plays before victory overlay

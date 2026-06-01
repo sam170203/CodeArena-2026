@@ -83,7 +83,10 @@ def _get_current_user(
 
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
-        raise HTTPException(status_code=404, detail="User not found")
+        # 401 (not 404) so the frontend interceptor clears stale localStorage
+        # and redirects to /login. This happens when the DB was reset (e.g.
+        # SQLite → Postgres migration) but the browser still has an old JWT.
+        raise HTTPException(status_code=401, detail="Session expired — please log in again")
 
     return user
 

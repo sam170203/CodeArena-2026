@@ -1,12 +1,16 @@
 "use client";
-import { use, useEffect } from "react";
+import { use, useEffect, useState } from "react";
 import { useDuel } from "@/stores/duel";
 import { useAuth } from "@/stores/auth";
 import { OpponentPanel } from "@/components/arena/OpponentPanel";
 import { ProblemCard } from "@/components/arena/ProblemCard";
-import { DuelTimer } from "@/components/arena/DuelTimer";
 import { ScanlineOverlay } from "@/components/primitives/ScanlineOverlay";
 import { VictoryOverlay } from "@/components/arena/VictoryOverlay";
+import { PromotionCeremony } from "@/components/arena/PromotionCeremony";
+import { DemotionToast } from "@/components/arena/DemotionToast";
+import { FloatingEmotes } from "@/components/arena/FloatingEmotes";
+import { ActivityTicker } from "@/components/arena/ActivityTicker";
+import { DuelHeader } from "@/components/arena/DuelHeader";
 
 export default function DuelPage({
   params,
@@ -15,7 +19,10 @@ export default function DuelPage({
 }) {
   const { id } = use(params);
   const me = useAuth((s) => s.user);
-  const { duel, load, connect, disconnect, complete } = useDuel();
+  const { duel, load, connect, disconnect, complete, recentEvents } = useDuel();
+
+  // ALL hooks must run unconditionally on every render.
+  const [ceremonyDone, setCeremonyDone] = useState(false);
 
   useEffect(() => {
     load(id).catch(() => {});
@@ -23,6 +30,7 @@ export default function DuelPage({
     return () => disconnect();
   }, [id, load, connect, disconnect]);
 
+  // Conditional rendering — but never conditional hooks.
   if (!duel) {
     return (
       <div className="flex min-h-[60vh] items-center justify-center font-mono text-xs tracking-[0.3em] text-[var(--color-text-3)]">
@@ -44,8 +52,10 @@ export default function DuelPage({
     status: meIsHost ? s.opponent_status : s.host_status,
   }));
 
-  const currentStepIdx = Math.min(self?.current_step ?? 0, duel.steps.length - 1);
-  const currentStep = duel.steps[currentStepIdx];
+  const myStepIdx = Math.min(self?.current_step ?? 0, duel.steps.length - 1);
+  const oppStepIdx = Math.min(opp?.current_step ?? 0, duel.steps.length - 1);
+  const myCurrentStep = duel.steps[myStepIdx];
+  const oppCurrentStep = duel.steps[oppStepIdx];
   const startedAt = duel.started_at ?? new Date().toISOString();
 
   const myEloChange = complete && me ? complete.eloChanges[me.id] : null;
@@ -58,24 +68,22 @@ export default function DuelPage({
         : "loss"
       : null;
 
+  const promotedMe = !!(complete && me && complete.promotionFor === me.id);
+  const demotedMe = !!(complete && me && complete.demotionFor === me.id);
+
   return (
     <>
       <ScanlineOverlay />
       <div className="space-y-6">
-        <div className="flex items-center justify-between border-b border-[var(--color-border)] pb-3">
-          <a
-            href="/play"
-            className="font-mono text-[11px] tracking-[0.2em] text-[var(--color-text-3)] hover:text-[var(--color-text-1)]"
-          >
-            ◀ EXIT
-          </a>
-          <DuelTimer startedAt={startedAt} capSeconds={duel.time_cap_seconds} />
-          <span className="font-mono text-[11px] tracking-[0.2em] text-[var(--color-text-3)]">
-            EMOTES · soon
-          </span>
-        </div>
+        <DuelHeader
+          duelId={id}
+          opponentName={opp?.username ?? "—"}
+          startedAt={startedAt}
+          capSeconds={duel.time_cap_seconds}
+          duelStatus={duel.status}
+        />
 
-        <div className="grid grid-cols-2 gap-8">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-8">
           <OpponentPanel
             align="left"
             username={self?.username ?? "you"}
@@ -83,6 +91,15 @@ export default function DuelPage({
             steps={mySteps}
             current={self?.current_step ?? 0}
             lastVerdict={self?.last_verdict}
+            currentProblem={
+              myCurrentStep
+                ? {
+                    name: myCurrentStep.problem.name,
+                    rating: myCurrentStep.rating,
+                  }
+                : null
+            }
+            isYou
           />
           <OpponentPanel
             align="right"
@@ -91,29 +108,51 @@ export default function DuelPage({
             steps={oppSteps}
             current={opp?.current_step ?? 0}
             lastVerdict={opp?.last_verdict}
+            currentProblem={
+              oppCurrentStep
+                ? {
+                    name: oppCurrentStep.problem.name,
+                    rating: oppCurrentStep.rating,
+                  }
+                : null
+            }
           />
         </div>
 
-        {currentStep && (
+        {myCurrentStep && (
           <ProblemCard
-            rating={currentStep.rating}
-            step={currentStep.step_index}
+            rating={myCurrentStep.rating}
+            step={myCurrentStep.step_index}
             total={duel.steps.length}
-            contestId={currentStep.problem.contest_id}
-            index={currentStep.problem.index}
-            name={currentStep.problem.name}
-            tags={currentStep.problem.tags ?? []}
+            contestId={myCurrentStep.problem.contest_id}
+            index={myCurrentStep.problem.index}
+            name={myCurrentStep.problem.name}
+            tags={myCurrentStep.problem.tags ?? []}
             lastVerdict={self?.last_verdict}
           />
         )}
+
+        <ActivityTicker events={recentEvents} />
       </div>
 
-      {result && myEloChange && (
+      <FloatingEmotes />
+      <DemotionToast show={demotedMe} />
+
+      {promotedMe && !ceremonyDone && complete?.newTier && myEloChange && (
+        <PromotionCeremony
+          newTier={complete.newTier}
+          newElo={myEloChange.after}
+          onDone={() => setCeremonyDone(true)}
+        />
+      )}
+
+      {result && myEloChange && (!promotedMe || ceremonyDone) && (
         <VictoryOverlay
           result={result}
           myEloBefore={myEloChange.before}
           myEloAfter={myEloChange.after}
           myDelta={myEloChange.delta}
+          duelId={id}
         />
       )}
     </>

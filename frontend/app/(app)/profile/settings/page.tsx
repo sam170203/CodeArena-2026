@@ -4,6 +4,8 @@ import { api } from "@/lib/api";
 import { useAuth } from "@/stores/auth";
 import { Card } from "@/components/primitives/Card";
 import { Button } from "@/components/primitives/Button";
+import { DeckEditor } from "@/components/profile/DeckEditor";
+import { CosmeticsEditor } from "@/components/profile/CosmeticsEditor";
 
 export default function SettingsPage() {
   const { user, refresh, logout } = useAuth();
@@ -66,6 +68,10 @@ export default function SettingsPage() {
           </div>
         )}
       </Card>
+      <DeckEditor />
+
+      <CosmeticsEditor />
+
       <Card>
         <div className="font-mono text-[11px] tracking-[0.25em] text-[var(--color-text-3)] uppercase mb-3">
           Session

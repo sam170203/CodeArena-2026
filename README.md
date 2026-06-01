@@ -1,271 +1,135 @@
-# CodeArena
-Link --> https://code-arena-wine.vercel.app/
+# CodeArena — Real-time Codeforces Duels
 
-A Codeforces-native competitive coding platform built from scratch. CodeArena lets you practice problems from Codeforces in organized sheets, challenge other coders in real-time duels, and track your growth — all without building a judge from scratch. The key architectural insight: instead of running and judging code internally, CodeArena uses the Codeforces API as its backend for problems and verdict verification.
+> Two players. Five problems. Rising rating each step. First to clear the ladder wins.
 
----
-
-## How it works
-
-CodeArena is a **thin coordination layer on top of Codeforces**. Problems come from the Codeforces problemset API. Users solve problems directly on the Codeforces website. Verdicts are verified by reading the user's Codeforces submission history via the CF API. CodeArena adds the social and competitive layer: persistent practice sheets, real-time duel rooms, and user profiles that aggregate CF data.
+**🌐 Live:**
+- **Frontend:** https://code-arena-2026.vercel.app
+- **Backend API:** https://codearena-backend-f05o.onrender.com
+- **API Docs:** https://codearena-backend-f05o.onrender.com/docs
 
 ---
 
-## Features (current state)
+## What it is
 
-### Authentication
-- Register and login with username/email and password.
-- JWT-based authentication with a custom HMAC-signed token implementation (no third-party auth library).
-- Link your Codeforces handle to your profile.
-- Sync your CF rating, rank, and solved problem history with one click.
+CodeArena is a competitive-programming duel platform with the **arcade pacing of Clash Royale** wrapped around real Codeforces problems. Two players link their CF handles, get matched on ELO, race up a 5-problem ladder, and submit on Codeforces — our backend polls the CF verdict tape and updates the duel HUD in real time. No custom judge needed; CF is the source of truth.
 
-### Practice Sheets
-- **Div 2 sheet** — problems rated around 1600 (±200), pulled fresh from CF.
-- **Div 3 sheet** — problems rated around 1100 (±200).
-- **Personalized sheet** — problems matched to your current CF rating.
-- **Custom sheet** — pick any target rating and filter by tags (e.g. `dp, greedy`).
-- Solve status is persisted per user — solved problems show green based on your CF submission history.
-- Sheets auto-refresh every 3 minutes and cache CF data in Redis for 1 hour.
+Designed in three phases:
 
-### Duels
-- Create a room with a target participant count (2–5 players).
-- The problem is automatically selected from CF based on the highest rating among all participants.
-- Join a room by duel ID or by looking up the host's user ID.
-- The host starts the duel when ready.
-- Everyone solves the problem on Codeforces. The first person to hit "Submit Solution" in CodeArena after getting an AC verdict wins.
-- Win/loss counts are updated on each user's profile.
-- Real-time room state updates via WebSocket.
-
-### Profile
-- View your username, email, CF handle, CF rating, rank, and solved count.
-- Update and sync your CF handle at any time.
-
----
-
-## Tech stack
-
-**Frontend** is built with Next.js 16 (Pages Router), React 19, Zustand 5 for global auth state, and Axios for API calls. Styling is inline CSS with a dark glassmorphism aesthetic.
-
-**Backend** is built with FastAPI and SQLAlchemy (sync ORM). Database migrations are handled by Alembic. Authentication uses a custom base64 + HMAC-SHA256 token system. The Codeforces integration is in `backend/app/services/codeforces.py` and handles rate limiting, Redis caching, and all CF API calls.
-
-**Database** is PostgreSQL. Redis is used for CF API response caching (problemset cached 1 hour, user data cached 10 minutes) and as a submission queue channel.
-
-**Infrastructure** uses Docker and Docker Compose. A GitHub Actions CI/CD pipeline builds and pushes Docker images to GitHub Container Registry on every push to `main`.
-
-| Layer | Technology |
+| Phase | What it ships |
 |---|---|
-| Frontend | Next.js 16, React 19, Zustand 5, Axios |
-| Backend | FastAPI, SQLAlchemy, Alembic, Pydantic |
-| Database | PostgreSQL |
-| Cache / Queue | Redis 7 |
-| Containerization | Docker, Docker Compose |
-| CI/CD | GitHub Actions → GHCR |
+| **1 — Core loop** | Auth · CF handle linking · Quick Match matchmaking · Live duel HUD · CF verdict poller · Win/lose ceremony · ELO updates · Leaderboard |
+| **2 — Status & retention** | 7-tier × 3-division ranks · Streak system with shields · Daily + weekly quests · Promotion ceremony · Post-duel replay · OG share image · Public profiles |
+| **3 — Personality & breadth** | In-duel emotes · Friend duel (private rooms) · Open lobby · Algorithm decks · Cosmetics · Async challenge · Spectate mode · Anti-abuse |
+
+All three phases are deployed and live at the URLs above.
 
 ---
 
-## Project structure
+## Stack
 
-```
-CodeArena/
-├── backend/
-│   ├── app/
-│   │   ├── main.py            # FastAPI app, CORS, WebSocket, submission endpoint
-│   │   ├── models.py          # SQLAlchemy ORM models
-│   │   ├── schemas.py         # Pydantic request/response schemas
-│   │   ├── crud.py            # Database helper functions
-│   │   ├── db.py              # Database connection and session
-│   │   ├── api/routes/
-│   │   │   ├── auth.py        # Register, login, CF handle sync
-│   │   │   ├── practice.py    # Practice sheet generation and persistence
-│   │   │   └── duel.py        # Duel lifecycle: create, join, start, submit
-│   │   └── services/
-│   │       └── codeforces.py  # CF API client with rate limiting and Redis cache
-│   ├── alembic/               # Database migration files
-│   ├── requirements.txt
-│   └── Dockerfile
-├── frontend/
-│   ├── pages/
-│   │   ├── index.js           # Landing page
-│   │   ├── login.js           # Login form
-│   │   ├── register.js        # Registration form
-│   │   ├── profile.js         # User profile and CF sync
-│   │   ├── practice/index.js  # Practice sheet UI (all 4 modes)
-│   │   └── duel/index.js      # Duel lobby + room UI
-│   ├── components/
-│   │   ├── Navbar.jsx         # Global navigation
-│   │   └── Layout.jsx         # Page layout wrapper
-│   ├── store/authStore.js     # Zustand auth store (token + user)
-│   ├── lib/api.js             # Axios instance and all API call definitions
-│   └── styles/globals.css     # Global styles
-├── sql/schema.sql             # Schema placeholder (Alembic handles migrations)
-├── docker-compose.yaml        # Runs frontend, backend, and Redis together
-└── .github/workflows/ci-cd.yaml
-```
+| Layer | Tech |
+|---|---|
+| Frontend | Next 16 (App Router) · TypeScript · Tailwind v4 · Zustand · TanStack Query · framer-motion · native WebSocket |
+| Backend | FastAPI · SQLAlchemy · Postgres (Render-hosted) · asyncio background workers · `httpx` for CF API |
+| Realtime | Native WebSockets (`/ws/duel/{id}`, `/ws/queue/{user_id}`, `/ws/user/{user_id}`) |
+| Deployment | Backend on **Render** (with Postgres), Frontend on **Vercel** — both auto-deploy from this repo |
 
 ---
 
-## Database schema
+## Routes
 
-The core entities and their relationships are:
+**Pages (App Router):**
+| | |
+|---|---|
+| `/` | Landing |
+| `/login`, `/register` | Auth |
+| `/play` | Dashboard (Quick Match + 4 modes + recent duels + quests) |
+| `/play/queue` | Matchmaking searching overlay |
+| `/play/friend` | Private friend duel (host or join by 6-char code) |
+| `/play/lobby` | Open lobby browser + spectate |
+| `/play/async` | Async challenge inbox + send |
+| `/duel/[id]` | Live duel HUD |
+| `/duel/[id]/spectate` | Read-only spectator HUD |
+| `/duel/[id]/replay` | Post-duel timeline + share card |
+| `/profile`, `/profile/settings` | Own profile + settings (CF handle, deck, cosmetics) |
+| `/quests` | Full quests view |
+| `/u/[handle]` | Public profile (sharable, unauthed) |
+| `/leaderboard` | Global ranks |
 
-- **User** has many Submissions, DuelParticipations, PracticeSheetItems, and SolvedProblems.
-- **Duel** has many DuelParticipants and Submissions. It tracks `status` (waiting → active → finished), `rating_target`, and `winner_id`.
-- **DuelParticipant** is the join table between User and Duel, storing each player's rating at the time they joined.
-- **Submission** records every code submission, linked optionally to a Duel or Room.
-- **PracticeSheetItem** is the persistent record of a problem on a user's sheet, including its solve `status` (new / seen / solved / archived).
-- **SolvedProblem** is a local cache of the user's CF-verified solves, populated on CF sync.
-- **Problem**, **Room**, and **ChatMessage** models exist in the schema but are not yet surfaced via API routes.
+**Selected API endpoints** (full surface at `/docs`):
+- `POST /auth/{register,login}` · `GET /auth/me` · `PUT /auth/cf-handle`
+- `POST /matchmaking/enqueue` · `DELETE /matchmaking/queue/{id}`
+- `POST /friend-duel` · `POST /friend-duel/join` · `GET /friend-duel/by-code/{code}`
+- `GET /duel/{id}/state` · `GET /replay/{id}` (public) · `GET /lobby/{active-duels,open-rooms}` (public)
+- `GET /quests/today` · `POST /quests/{id}/claim`
+- `GET /deck/me` · `PUT /deck/me`
+- `GET /cosmetics/me` · `PUT /cosmetics/equip`
+- `POST /async-challenge` · `GET /async-challenge/inbox` · `POST /{id}/{accept,submit}`
+- `GET /leaderboard` · `GET /profile/me/elo-history` · `GET /profile/by-handle/{username}` (public)
+- WebSocket: `/ws/duel/{id}` (verdict + emote), `/ws/queue/{user_id}` (match found), `/ws/user/{user_id}` (friend-duel-started)
 
 ---
 
-## Running locally
-
-### Prerequisites
-
-Docker and Docker Compose must be installed. No other local setup is required.
-
-### With Docker Compose
+## Run it locally
 
 ```bash
-git clone https://github.com/pranshu3125/CodeArena-.git
-cd CodeArena-
-docker-compose up --build
-```
-
-This starts three services: the Next.js frontend on port 3000, the FastAPI backend on port 8000, and Redis on port 6379.
-
-### Without Docker (development mode)
-
-**Backend:**
-```bash
+# Backend (terminal 1)
 cd backend
 pip install -r requirements.txt
+rm -f codearena.db   # if columns changed since your last boot
+python -m uvicorn app.main:app --reload --port 8000
 
-# Set environment variables
-export SECRET_KEY="your-secret-key"
-export DATABASE_URL="postgresql://user:password@localhost/codearena"
-export REDIS_URL="redis://localhost:6379/0"
-
-# Run migrations
-alembic upgrade head
-
-# Start the server
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
-```
-
-**Frontend:**
-```bash
+# Frontend (terminal 2)
 cd frontend
+cp .env.example .env.local   # first time only
 npm install
-
-# Set environment variable
-echo "NEXT_PUBLIC_API_URL=http://localhost:8000" > .env.local
-echo "NEXT_PUBLIC_WS_URL=ws://localhost:8000" >> .env.local
-
 npm run dev
+# open http://localhost:3000
+```
+
+**Environment variables** for local frontend (`frontend/.env.local`):
+```
+NEXT_PUBLIC_API_BASE_URL=http://localhost:8000
+NEXT_PUBLIC_WS_BASE_URL=ws://localhost:8000
+```
+
+To point local frontend at the live deployed backend instead, use the production URLs (with `wss://` for the WS one).
+
+---
+
+## Tests
+
+```bash
+cd backend  && python -m pytest                  # 20 tests (elo, problem picker, streak)
+cd frontend && npm test                          # 22 tests (elo, tier)
+cd frontend && npx tsc --noEmit && npm run build # type-check + build
 ```
 
 ---
 
-## Environment variables
+## Deployment
 
-**Backend:**
+Pushes to `feat/db-layer` (or `main`) auto-deploy both services:
 
-| Variable | Default | Description |
-|---|---|---|
-| `SECRET_KEY` | `codearena-dev-secret` | HMAC signing key for JWT tokens |
-| `DATABASE_URL` | SQLite fallback | PostgreSQL connection string |
-| `REDIS_URL` | `redis://localhost:6379/0` | Redis connection URL |
-| `CORS_ORIGINS` | localhost:3000 + Vercel URLs | Comma-separated allowed origins |
+- **Backend** rebuilds on Render → ~3 min build (compiles `psycopg2-binary`) → live at the URL above
+- **Frontend** rebuilds on Vercel → ~2 min build → live at the URL above
 
-**Frontend:**
+CORS regex on the backend (`https://.*\.vercel\.app$`) means any Vercel preview subdomain works without extra setup.
 
-| Variable | Default | Description |
-|---|---|---|
-| `NEXT_PUBLIC_API_URL` | `http://127.0.0.1:8000` | Backend API base URL |
-| `NEXT_PUBLIC_WS_URL` | `ws://127.0.0.1:8000` | WebSocket base URL |
+Full setup instructions in [DEPLOYMENT.md](DEPLOYMENT.md). Current state and known caveats in [PROGRESS.md](PROGRESS.md).
 
 ---
 
-## API reference
+## Design docs
 
-### Auth (`/auth`)
+Living docs that drove the build:
 
-| Method | Endpoint | Description |
-|---|---|---|
-| POST | `/auth/register` | Create a new account |
-| POST | `/auth/login` | Login, returns JWT token |
-| GET | `/auth/me` | Get current user (requires token) |
-| PUT | `/auth/cf-handle` | Update Codeforces handle |
-| POST | `/auth/sync-cf` | Pull rating + solved history from CF |
-
-### Practice (`/practice`)
-
-| Method | Endpoint | Description |
-|---|---|---|
-| GET | `/practice/div2` | Get Div 2 sheet (rating ~1600) |
-| GET | `/practice/div3` | Get Div 3 sheet (rating ~1100) |
-| GET | `/practice/generate` | Custom sheet by rating + tags |
-| GET | `/practice/user/{user_id}` | Personalized sheet by user's CF rating |
-
-### Duels (`/duel`)
-
-| Method | Endpoint | Description |
-|---|---|---|
-| POST | `/duel/create` | Create a duel room |
-| POST | `/duel/join` | Join a duel by duel ID |
-| POST | `/duel/start` | Start the duel (host only) |
-| GET | `/duel/{duel_id}` | Get duel state |
-| GET | `/duel/host/{host_id}` | Find active duel by host |
-| GET | `/duel/{duel_id}/problem` | Get the duel's problem (participants only) |
-| POST | `/duel/submit` | Check CF for AC verdict, update winner |
-
-### WebSocket
-
-| Endpoint | Description |
-|---|---|
-| `WS /ws/duel/{duel_id}` | Real-time duel room state and events |
-
-Events broadcast over WebSocket: `JOIN_ROOM`, `START_DUEL`, `END_DUEL`, `SUBMIT_SOLUTION`, `SCORE_UPDATE`, `CHAT_MESSAGE`.
-
-### Other
-
-| Method | Endpoint | Description |
-|---|---|---|
-| GET | `/cf/problems` | Fetch first 50 problems from CF problemset |
-| POST | `/submissions/submit` | Queue a code submission (verdict processing pending) |
-| GET | `/health` | Health check |
+- [docs/superpowers/specs/2026-05-22-codeforces-duel-arcade-design.md](docs/superpowers/specs/2026-05-22-codeforces-duel-arcade-design.md) — full design spec (visual system, mechanics, gamification rules, data model, backend extensions)
+- [docs/superpowers/plans/2026-05-22-codeforces-duel-phase-1.md](docs/superpowers/plans/2026-05-22-codeforces-duel-phase-1.md) — Phase 1 implementation plan
+- [docs/superpowers/plans/2026-05-22-codeforces-duel-phase-2.md](docs/superpowers/plans/2026-05-22-codeforces-duel-phase-2.md) — Phase 2 implementation plan
 
 ---
 
-## Known limitations and incomplete work
+## License
 
-The following features are scaffolded (models/schemas exist) but not yet complete:
-
-**Submission worker** — `/submissions/submit` stores code and publishes to Redis, but there is no background worker consuming the queue. Submissions stay in `"queued"` status indefinitely. The actual verdict verification for duels goes through `/duel/submit` (CF API check), not this endpoint.
-
-**Duel room page** — `pages/duel/[duelId].js` exists as a route but is a bare placeholder showing only raw WebSocket messages. The full duel room experience lives in `pages/duel/index.js` via query string (`?duelId=xxx`).
-
-**WebSocket scaling** — The in-memory `duel_subs` dict means WebSocket state is not shared across multiple backend instances. Running more than one backend process will break real-time updates.
-
-**XP system** — The `xp` column exists on the User model and is never incremented.
-
-**Rooms and Chat** — The `Room` and `ChatMessage` models and their CRUD functions exist but have no API routes or frontend UI.
-
-**Lobby / matchmaking** — There is no way to browse open duels. Players must share duel IDs or host user IDs manually.
-
-**Password hashing** — Currently uses SHA-256. Should be replaced with bcrypt for production security.
-
-**SQL schema file** — `sql/schema.sql` is a placeholder. All schema management is done via Alembic migrations.
-
----
-
-## CI/CD
-
-GitHub Actions runs on every push to `main` and every pull request. It builds both the frontend and backend, then pushes Docker images to GitHub Container Registry (`ghcr.io`). Tests are currently a placeholder (`echo "Running tests..."`).
-
----
-
-## Contributing
-
-This project is built from scratch as a learning exercise. If you want to contribute or fork it, the best places to start are fixing the submission worker, building the duel room page, and adding the lobby/browse feature.
+MIT.
