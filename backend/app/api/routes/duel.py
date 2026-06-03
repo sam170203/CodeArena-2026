@@ -1,13 +1,14 @@
+import json
 import uuid
 from datetime import datetime
-from typing import Any, Dict, List
+from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app import crud
 from app.db import get_db
-from app.models import Duel, DuelParticipant, User
+from app.models import Duel, DuelParticipant, DuelStep, EloHistory, User
 from app.schemas import (
     DuelCreate,
     DuelCreateResponse,
@@ -20,15 +21,31 @@ from app.schemas import (
     DuelSubmitResult,
 )
 from app.services.codeforces import CodeforcesService
+from app.services.cf_sync import process_duel_cf, verify_cf_handle
+from app.services.duel_completion import complete_duel
+from app.services.duel_roles import host_and_opponent, is_duel_host
+from app.services.elo import tier_for_elo
+from app.api.routes.auth import _get_current_user
 
 router = APIRouter(prefix="/duel", tags=["duel"])
 
+
+# ================= HELPERS =================
 
 def _validate_uuid(value: str, field_name: str) -> None:
     try:
         uuid.UUID(value)
     except ValueError:
         raise HTTPException(status_code=400, detail=f"Invalid {field_name} format")
+
+
+def iso_utc(dt):
+    if dt is None:
+        return None
+    s = dt.isoformat()
+    if s.endswith("Z") or "+" in s[10:] or s[10:].count("-") > 0:
+        return s
+    return s + "Z"
 
 
 def _participant_payload(db: Session, participant: DuelParticipant) -> DuelParticipantOut:
@@ -105,6 +122,91 @@ def _serialize_duel(db: Session, duel: Duel) -> DuelOut:
         finished_at=duel.finished_at,
     )
 
+
+def _serialize_duel_state(db: Session, duel_id: str):
+    duel = db.query(Duel).filter(Duel.id == duel_id).first()
+    if not duel:
+        return {"exists": False}
+
+    step_rows = (
+        db.query(DuelStep)
+        .filter(DuelStep.duel_id == duel.id)
+        .order_by(DuelStep.step_index.asc())
+        .all()
+    )
+
+    steps = [
+        {
+            "step_index": s.step_index,
+            "rating": s.rating,
+            "problem": {
+                "contest_id": s.problem_contest_id,
+                "index": s.problem_index,
+                "name": s.problem_name,
+                "rating": s.rating,
+                "problem_id": s.problem_id,
+                "tags": (json.loads(s.problem_tags_json) if s.problem_tags_json else []),
+            },
+            "host_status": s.host_status,
+            "opponent_status": s.opponent_status,
+        }
+        for s in step_rows
+    ]
+
+    participant_rows = (
+        db.query(DuelParticipant)
+        .filter(DuelParticipant.duel_id == duel.id)
+        .order_by(DuelParticipant.joined_at.asc())
+        .all()
+    )
+
+    def _p(row, is_host: bool):
+        user = db.query(User).filter(User.id == row.user_id).first()
+        current_step = next(
+            (
+                s.step_index
+                for s in step_rows
+                if (s.host_status if is_host else s.opponent_status) == "pending"
+            ),
+            len(step_rows),
+        )
+        elo = (user.elo if user else 1200) or 1200
+        cf_handle = (user.cf_handle if user else None) or None
+        cf_valid, cf_error = (True, None)
+        if cf_handle:
+            cf_valid, cf_error = verify_cf_handle(cf_handle)
+        return {
+            "user_id": row.user_id,
+            "username": user.username if user else row.user_id,
+            "cf_handle": cf_handle,
+            "cf_valid": cf_valid,
+            "cf_error": cf_error,
+            "elo": elo,
+            "tier": tier_for_elo(elo).key,
+            "current_step": current_step,
+            "last_verdict": None,
+            "joined_at": iso_utc(row.joined_at),
+        }
+
+    host_row, opp_row = host_and_opponent(duel, participant_rows)
+    host_payload = _p(host_row, True) if host_row else None
+    opp_payload = _p(opp_row, False) if opp_row else None
+
+    return {
+        "exists": True,
+        "id": duel.id,
+        "status": duel.status,
+        "host": host_payload,
+        "opponent": opp_payload,
+        "steps": steps,
+        "started_at": iso_utc(duel.started_at),
+        "finished_at": iso_utc(duel.finished_at),
+        "time_cap_seconds": duel.time_cap_seconds,
+        "winner_id": duel.winner_id,
+    }
+
+
+# ================= SPECIFIC ROUTES FIRST =================
 
 @router.post("/create", response_model=DuelCreateResponse)
 def create_duel(data: DuelCreate, db: Session = Depends(get_db)):
@@ -270,50 +372,6 @@ def start_duel(payload: DuelStartRequest, db: Session = Depends(get_db)):
     )
 
 
-@router.get("/{duel_id}", response_model=DuelOut)
-def get_duel(duel_id: str, db: Session = Depends(get_db)):
-    _validate_uuid(duel_id, "duel_id")
-
-    duel = db.query(Duel).filter(Duel.id == duel_id).first()
-    if not duel:
-        raise HTTPException(status_code=404, detail="Duel not found")
-
-    return _serialize_duel(db, duel)
-
-
-@router.get("/{duel_id}/problem")
-def get_duel_problem(duel_id: str, user_id: str, db: Session = Depends(get_db)):
-    _validate_uuid(duel_id, "duel_id")
-    _validate_uuid(user_id, "user_id")
-
-    duel = db.query(Duel).filter(Duel.id == duel_id).first()
-    if not duel:
-        raise HTTPException(status_code=404, detail="Duel not found")
-
-    participants = (
-        db.query(DuelParticipant)
-        .filter(DuelParticipant.duel_id == duel.id)
-        .all()
-    )
-    if user_id not in [p.user_id for p in participants]:
-        raise HTTPException(status_code=403, detail="Not a participant")
-
-    if not duel.problem_id:
-        _assign_problem_for_room(db, duel, force=True)
-        db.commit()
-        db.refresh(duel)
-
-    return {
-        "problem_id": duel.problem_id,
-        "problem_name": duel.problem_name,
-        "rating": duel.problem_rating,
-        "tags": [],
-        "time_limit": None,
-        "memory_limit": None,
-        "status": duel.status,
-    }
-
-
 @router.post("/submit", response_model=DuelSubmitResult)
 def submit_solution(payload: DuelSubmitRequest, db: Session = Depends(get_db)):
     _validate_uuid(payload.duel_id, "duel_id")
@@ -389,3 +447,152 @@ def submit_solution(payload: DuelSubmitRequest, db: Session = Depends(get_db)):
     db.refresh(duel)
 
     return submit_result
+
+
+@router.get("/recent/me")
+def recent_duels(
+    limit: int = 10,
+    current_user: User = Depends(_get_current_user),
+    db: Session = Depends(get_db),
+):
+    rows = (
+        db.query(EloHistory)
+        .filter(EloHistory.user_id == current_user.id)
+        .order_by(EloHistory.created_at.desc())
+        .limit(min(max(limit, 1), 50))
+        .all()
+    )
+    out = []
+    for h in rows:
+        opp = (
+            db.query(User).filter(User.id == h.opponent_id).first()
+            if h.opponent_id
+            else None
+        )
+        duel = db.query(Duel).filter(Duel.id == h.duel_id).first()
+        steps_solved = 0
+        if duel:
+            is_host = bool(is_duel_host(duel, current_user.id))
+            step_rows = db.query(DuelStep).filter(DuelStep.duel_id == duel.id).all()
+            steps_solved = sum(
+                1
+                for s in step_rows
+                if (s.host_status if is_host else s.opponent_status) == "solved"
+            )
+        out.append(
+            {
+                "id": h.duel_id,
+                "opponent": opp.username if opp else "—",
+                "result": h.result if h.result in ("win", "loss", "draw") else "win",
+                "delta": h.delta,
+                "steps_cleared": steps_solved,
+                "duration_seconds": (
+                    int((duel.finished_at - duel.started_at).total_seconds())
+                    if (duel and duel.finished_at and duel.started_at)
+                    else 0
+                ),
+                "ended_at": (
+                    duel.finished_at.isoformat()
+                    if duel and duel.finished_at
+                    else h.created_at.isoformat()
+                ),
+            }
+        )
+    return out
+
+
+# ================= WILDCARD ROUTES LAST =================
+
+@router.get("/{duel_id}/state")
+def get_duel_state(duel_id: str, db: Session = Depends(get_db)):
+    state = _serialize_duel_state(db, duel_id)
+    if not state.get("exists"):
+        raise HTTPException(status_code=404, detail="Duel not found")
+    return state
+
+
+@router.post("/{duel_id}/sync")
+async def sync_duel_verdicts(duel_id: str, db: Session = Depends(get_db)):
+    duel = db.query(Duel).filter(Duel.id == duel_id).first()
+    if not duel:
+        raise HTTPException(status_code=404, detail="Duel not found")
+    if duel.status != "active":
+        raise HTTPException(status_code=400, detail="Duel is not active")
+
+    await process_duel_cf(db, duel, broadcast=True)
+    db.refresh(duel)
+    state = _serialize_duel_state(db, duel_id)
+    return {"sync": True, "state": state}
+
+
+@router.post("/{duel_id}/forfeit")
+async def forfeit_duel(
+    duel_id: str,
+    current_user: User = Depends(_get_current_user),
+    db: Session = Depends(get_db),
+):
+    duel = db.query(Duel).filter(Duel.id == duel_id).first()
+    if not duel:
+        raise HTTPException(status_code=404, detail="Duel not found")
+    if duel.status != "active":
+        raise HTTPException(status_code=400, detail="Duel is not active")
+
+    parts = (
+        db.query(DuelParticipant)
+        .filter(DuelParticipant.duel_id == duel.id)
+        .order_by(DuelParticipant.joined_at.asc())
+        .all()
+    )
+    if not any(p.user_id == current_user.id for p in parts):
+        raise HTTPException(status_code=403, detail="Not a participant")
+
+    other = next((p for p in parts if p.user_id != current_user.id), None)
+    winner_id = other.user_id if other else None
+    await complete_duel(db, duel, winner_user_id=winner_id)
+    return {"ok": True, "winner_id": winner_id}
+
+
+@router.get("/{duel_id}/problem")
+def get_duel_problem(duel_id: str, user_id: str, db: Session = Depends(get_db)):
+    _validate_uuid(duel_id, "duel_id")
+    _validate_uuid(user_id, "user_id")
+
+    duel = db.query(Duel).filter(Duel.id == duel_id).first()
+    if not duel:
+        raise HTTPException(status_code=404, detail="Duel not found")
+
+    participants = (
+        db.query(DuelParticipant)
+        .filter(DuelParticipant.duel_id == duel.id)
+        .all()
+    )
+    if user_id not in [p.user_id for p in participants]:
+        raise HTTPException(status_code=403, detail="Not a participant")
+
+    if not duel.problem_id:
+        _assign_problem_for_room(db, duel, force=True)
+        db.commit()
+        db.refresh(duel)
+
+    return {
+        "problem_id": duel.problem_id,
+        "problem_name": duel.problem_name,
+        "rating": duel.problem_rating,
+        "tags": [],
+        "time_limit": None,
+        "memory_limit": None,
+        "status": duel.status,
+    }
+
+
+# ================= PURE WILDCARD — ABSOLUTE LAST =================
+
+@router.get("/{duel_id}", response_model=DuelOut)
+def get_duel(duel_id: str, db: Session = Depends(get_db)):
+    _validate_uuid(duel_id, "duel_id")
+
+    duel = db.query(Duel).filter(Duel.id == duel_id).first()
+    if not duel:
+        raise HTTPException(status_code=404, detail="Duel not found")
+
+    return _serialize_duel(db, duel)
