@@ -15,7 +15,8 @@ from pydantic import BaseModel
 
 from app.db import get_db
 from app.schemas import UserCreate, UserLogin, TokenResponse, UserMe, UserOut
-from app.services.codeforces import get_user_info, get_user_solved_problems
+from app.services.codeforces import CodeforcesService, get_user_info, get_user_solved_problems
+from app.services.cf_sync import verify_cf_handle
 from app.models import SolvedProblem, User
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -170,6 +171,18 @@ def update_cf_handle(
     cf_handle = payload.cf_handle.strip()
     if not cf_handle:
         raise HTTPException(status_code=400, detail="CF handle cannot be empty")
+
+    valid, err = verify_cf_handle(cf_handle)
+    if not valid:
+        raise HTTPException(
+            status_code=400,
+            detail=err or f"Codeforces handle '{cf_handle}' not found",
+        )
+
+    info = CodeforcesService.fetch_user_rating(cf_handle)
+    if info:
+        current_user.cf_rating = info.get("current_rating", 0) or 0
+        current_user.cf_rank = info.get("rank", "unrated")
 
     current_user.cf_handle = cf_handle
     current_user.updated_at = datetime.utcnow()

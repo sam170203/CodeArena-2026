@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.db import get_db
 from app.models import Duel, DuelParticipant, DuelStep, ReplayEvent, User
+from app.services.duel_roles import host_and_opponent
 from app.services.elo import tier_for_elo
 
 router = APIRouter(prefix="/replay", tags=["replay"])
@@ -37,11 +38,12 @@ def get_replay(duel_id: str, db: Session = Depends(get_db)):
             "role": "host" if is_host else "opponent",
         }
 
+    host_row, opp_row = host_and_opponent(duel, parts)
     participants = []
-    if len(parts) >= 1:
-        participants.append(_participant(parts[0], True))
-    if len(parts) >= 2:
-        participants.append(_participant(parts[1], False))
+    if host_row:
+        participants.append(_participant(host_row, True))
+    if opp_row:
+        participants.append(_participant(opp_row, False))
 
     step_rows = (
         db.query(DuelStep)

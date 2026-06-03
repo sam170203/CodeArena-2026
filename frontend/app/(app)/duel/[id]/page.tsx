@@ -19,16 +19,26 @@ export default function DuelPage({
 }) {
   const { id } = use(params);
   const me = useAuth((s) => s.user);
-  const { duel, load, connect, disconnect, complete, recentEvents } = useDuel();
+  const { duel, load, sync, connect, disconnect, complete, recentEvents } =
+    useDuel();
 
   // ALL hooks must run unconditionally on every render.
   const [ceremonyDone, setCeremonyDone] = useState(false);
 
   useEffect(() => {
-    load(id).catch(() => {});
+    (async () => {
+      await load(id).catch(() => {});
+      await sync(id).catch(() => {});
+    })();
     connect(id);
-    return () => disconnect();
-  }, [id, load, connect, disconnect]);
+    const tick = setInterval(() => {
+      sync(id).catch(() => {});
+    }, 5_000);
+    return () => {
+      clearInterval(tick);
+      disconnect();
+    };
+  }, [id, load, sync, connect, disconnect]);
 
   // Conditional rendering — but never conditional hooks.
   if (!duel) {
@@ -71,6 +81,17 @@ export default function DuelPage({
   const promotedMe = !!(complete && me && complete.promotionFor === me.id);
   const demotedMe = !!(complete && me && complete.demotionFor === me.id);
 
+  const myCfInvalid = self && self.cf_valid === false;
+  const myCfError = self?.cf_error;
+  const syncHint =
+    myCfInvalid && myCfError
+      ? myCfError
+      : !self?.cf_handle
+      ? "Link your Codeforces handle in Settings to track solves."
+      : duel.status === "active"
+      ? "Submit on Codeforces after the duel starts — only new submissions count."
+      : null;
+
   return (
     <>
       <ScanlineOverlay />
@@ -82,6 +103,30 @@ export default function DuelPage({
           capSeconds={duel.time_cap_seconds}
           duelStatus={duel.status}
         />
+
+        {syncHint && (
+          <div
+            className={`rounded-lg border px-4 py-3 font-mono text-[11px] tracking-wide ${
+              myCfInvalid
+                ? "border-[var(--color-danger)]/50 bg-[var(--color-danger)]/10 text-[var(--color-danger)]"
+                : "border-[var(--color-neon-cyan)]/30 bg-[var(--color-neon-cyan)]/5 text-[var(--color-neon-cyan)]"
+            }`}
+          >
+            {myCfInvalid ? "⚠ CF sync blocked: " : "// "}
+            {syncHint}
+            {myCfInvalid && (
+              <>
+                {" "}
+                <a
+                  href="/profile/settings"
+                  className="underline hover:opacity-80"
+                >
+                  Fix in Settings
+                </a>
+              </>
+            )}
+          </div>
+        )}
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-8">
           <OpponentPanel

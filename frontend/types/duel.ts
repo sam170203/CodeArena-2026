@@ -16,6 +16,8 @@ export interface DuelParticipant {
   user_id: string;
   username: string;
   cf_handle?: string | null;
+  cf_valid?: boolean;
+  cf_error?: string | null;
   elo: number;
   tier: string;
   current_step: number;

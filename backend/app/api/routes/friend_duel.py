@@ -190,14 +190,21 @@ async def join_room(
     db.add(duel)
     db.flush()
 
+    joined_at = datetime.utcnow()
     db.add(
         DuelParticipant(
-            duel_id=duel.id, user_id=host_user.id, current_rating=host_user.elo or 1200
+            duel_id=duel.id,
+            user_id=host_user.id,
+            current_rating=host_user.elo or 1200,
+            joined_at=joined_at,
         )
     )
     db.add(
         DuelParticipant(
-            duel_id=duel.id, user_id=current_user.id, current_rating=current_user.elo or 1200
+            duel_id=duel.id,
+            user_id=current_user.id,
+            current_rating=current_user.elo or 1200,
+            joined_at=joined_at + timedelta(milliseconds=1),
         )
     )
 
