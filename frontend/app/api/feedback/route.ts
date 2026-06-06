@@ -47,7 +47,7 @@ export async function POST(req: NextRequest) {
 
   await resend.emails.send({
     from: "Code Arena <onboarding@resend.dev>",
-    to: "aryan.pareek@quarq.io",
+    to: "mudgalsaksham@gmail.com",
     subject: formatSubject(payload.type, payload.title),
     html: formatBody(payload),
   });
