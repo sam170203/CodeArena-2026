@@ -1,6 +1,7 @@
-import { Resend } from "resend";
 import { NextRequest, NextResponse } from "next/server";
 import { formatSubject, formatBody, FeedbackPayload } from "@/lib/feedback-email";
+
+export const dynamic = "force-dynamic";
 
 // In-memory rate limit: 5 submissions per IP per hour
 const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
@@ -43,6 +44,7 @@ export async function POST(req: NextRequest) {
     pageUrl: (body.pageUrl ?? "").trim(),
   };
 
+  const { Resend } = await import("resend");
   const resend = new Resend(process.env.RESEND_API_KEY);
 
   await resend.emails.send({
