@@ -2,13 +2,6 @@
 
 > Two players. Five problems. Rising rating each step. First to clear the ladder wins.
 
-**🌐 Live:**
-- **Frontend:** https://code-arena-2026.vercel.app
-- **Backend API:** https://codearena-backend-f05o.onrender.com
-- **API Docs:** https://codearena-backend-f05o.onrender.com/docs
-
----
-
 ## What it is
 
 CodeArena is a competitive-programming duel platform with the **arcade pacing of Clash Royale** wrapped around real Codeforces problems. Two players link their CF handles, get matched on ELO, race up a 5-problem ladder, and submit on Codeforces — our backend polls the CF verdict tape and updates the duel HUD in real time. No custom judge needed; CF is the source of truth.
