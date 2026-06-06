@@ -3,6 +3,7 @@ import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/stores/auth";
 import { AppShell } from "@/components/layout/AppShell";
+import { FeedbackButton } from "@/components/layout/FeedbackButton";
 
 export default function AppLayout({
   children,
@@ -28,5 +29,10 @@ export default function AppLayout({
     );
   }
 
-  return <AppShell>{children}</AppShell>;
+  return (
+    <AppShell>
+      {children}
+      <FeedbackButton />
+    </AppShell>
+  );
 }
