@@ -7,7 +7,8 @@
   "regions": ["iad1"],
   "git": {
     "deploymentEnabled": {
-      "feat/db-layer": true
+      "feat/db-layer": true,
+      "main": true
     }
   }
 }
