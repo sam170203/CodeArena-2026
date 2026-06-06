@@ -2,8 +2,6 @@ import { Resend } from "resend";
 import { NextRequest, NextResponse } from "next/server";
 import { formatSubject, formatBody, FeedbackPayload } from "@/lib/feedback-email";
 
-const resend = new Resend(process.env.RESEND_API_KEY);
-
 // In-memory rate limit: 5 submissions per IP per hour
 const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
 
@@ -44,6 +42,8 @@ export async function POST(req: NextRequest) {
     email: (body.email ?? "").trim(),
     pageUrl: (body.pageUrl ?? "").trim(),
   };
+
+  const resend = new Resend(process.env.RESEND_API_KEY);
 
   await resend.emails.send({
     from: "Code Arena <onboarding@resend.dev>",
